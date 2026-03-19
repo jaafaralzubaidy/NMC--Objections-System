@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import streamlit_authenticator as stauth
 import os
-from datetime import datetime, timedelta # أضفنا timedelta لضبط الوقت
+from datetime import datetime, timedelta
 
 # --- Page Configuration ---
 st.set_page_config(page_title="NMC Objections Portal", layout="wide")
@@ -11,9 +11,16 @@ st.set_page_config(page_title="NMC Objections Portal", layout="wide")
 appeals_file = "database_appeals.csv"
 users_file = "users_list.csv"
 
+# --- 🚀 تحسين الأداء (Caching) ---
+# هذه الدوال تجعل البرنامج يقرأ الملفات من الذاكرة بدلاً من الهارد ديسك في كل مرة
+@st.cache_data(ttl=60) # تحديث تلقائي كل دقيقة لضمان السرعة
+def load_data(file_path):
+    if os.path.exists(file_path):
+        return pd.read_csv(file_path)
+    return None
+
 # --- Initialization of Users Database ---
 if not os.path.exists(users_file):
-    # القائمة الأولية التي أعطيتني إياها
     initial_users = [
         "ahatim", "mkhalid", "hfalah", "hmuayyad", "alimad", "rriyad", "hjabbar", 
         "hmuhammada", "arubayi", "aadil", "ayasin", "fahmad", "hakali", "musadiq", 
@@ -30,7 +37,7 @@ if not os.path.exists(users_file):
         user_data.append({"username": u, "password": p, "name": u.upper(), "role": role})
     pd.DataFrame(user_data).to_csv(users_file, index=False)
 
-# Load Users
+# Load Users (تم استخدام التحسين هنا)
 users_df = pd.read_csv(users_file)
 
 # --- Authenticator Setup ---
@@ -59,12 +66,10 @@ if st.session_state.get("authentication_status"):
     
     # --- DATABASE LOAD ---
     if not os.path.exists(appeals_file):
-        # إضافة العمود الجديد للهيكل الأساسي للملف
         pd.DataFrame(columns=["Employee", "Date", "Ticket Number", "Tab", "Details", "Quality Decision", "Direct Manager", "Objection Issue Date"]).to_csv(appeals_file, index=False)
     
     df_appeals = pd.read_csv(appeals_file)
     
-    # التحقق من وجود العمود في حال كان الملف موجوداً مسبقاً بدون العمود الجديد
     if "Objection Issue Date" not in df_appeals.columns:
         df_appeals["Objection Issue Date"] = ""
         df_appeals.to_csv(appeals_file, index=False)
@@ -76,9 +81,9 @@ if st.session_state.get("authentication_status"):
         main_tab = st.container()
 
     with main_tab:
-        # --- ADMIN & MANAGER INTERFACE ---
         if username in ['jsafaa', 'ahatim']:
             st.subheader("🛠 MANAGEMENT CONTROL PANEL")
+            # استخدام st.dataframe مع ميزة التحسين
             st.dataframe(df_appeals, use_container_width=True)
             with st.expander("Update Decisions"):
                 if not df_appeals.empty:
@@ -92,10 +97,10 @@ if st.session_state.get("authentication_status"):
                         df_appeals.loc[row_idx, "Quality Decision"] = q_dec
                         df_appeals.loc[row_idx, "Direct Manager"] = m_dec
                         df_appeals.to_csv(appeals_file, index=False)
+                        st.cache_data.clear() # تفريغ الكاش لتحديث البيانات فوراً
                         st.success("Updated!")
                         st.rerun()
         
-        # --- EMPLOYEE INTERFACE ---
         else:
             t_sub, t_hist = st.tabs(["📤 Submit", "📜 History"])
             with t_sub:
@@ -104,16 +109,12 @@ if st.session_state.get("authentication_status"):
                     f_tab = st.selectbox("Tab", ["SWITCH STATE", "Baghdad Rings", "MPLS", "EARTHLINK SERVICES", "Alwatani-Services", "BRIDGES", "Wireless", "IRQNBN", "ITPC", "MERTO", "NAS's", "Server Room", "Power", "AL-Watani Power"])
                     f_details = st.text_area("Details")
                     if st.form_submit_button("Submit"):
-                        # جلب التوقيت العالمي UTC وإضافة 3 ساعات ليكون توقيت بغداد
                         baghdad_now = datetime.utcnow() + timedelta(hours=3)
-                        
                         if baghdad_now.day >= 18 and f_date.day <= 15:
                             st.error("❌ Error: Exceeded objection period for 1st half.")
                         elif not f_ticket or not f_details: st.error("❌ Fill all fields!")
                         else:
-                            # تنسيق وقت بغداد بصيغة نصية
                             submission_time = baghdad_now.strftime("%Y-%m-%d %H:%M:%S")
-                            
                             new_row = {
                                 "Employee": st.session_state.get("name"), 
                                 "Date": str(f_date), 
@@ -125,15 +126,14 @@ if st.session_state.get("authentication_status"):
                                 "Objection Issue Date": submission_time 
                             }
                             df_appeals = pd.concat([df_appeals, pd.DataFrame([new_row])], ignore_index=True)
-                            df_appeals.to_csv(appeals_file, index=False); st.success(f"Submitted at {submission_time} (Baghdad Time)!"); st.balloons()
+                            df_appeals.to_csv(appeals_file, index=False)
+                            st.cache_data.clear() # تفريغ الكاش لتحديث البيانات فوراً
+                            st.success(f"Submitted at {submission_time} (Baghdad Time)!"); st.balloons()
             with t_hist: st.dataframe(df_appeals[df_appeals['Employee'] == st.session_state.get("name")], use_container_width=True)
 
-    # --- ADMIN ONLY TAB: MANAGE STAFF ---
     if username == 'jsafaa':
         with admin_users_tab:
             st.subheader("👥 Employee Directory Management")
-            
-            # 1. Add New Employee
             with st.expander("➕ Add New Employee"):
                 new_u = st.text_input("New Username").lower().strip()
                 new_n = st.text_input("Full Name (Display)")
@@ -142,24 +142,25 @@ if st.session_state.get("authentication_status"):
                         new_user_row = {"username": new_u, "password": "123", "name": new_n, "role": "Employee"}
                         users_df = pd.concat([users_df, pd.DataFrame([new_user_row])], ignore_index=True)
                         users_df.to_csv(users_file, index=False)
+                        st.cache_data.clear()
                         st.success(f"User {new_u} added! Restart app to apply.")
                     else: st.error("Invalid or existing username.")
 
-            # 2. Change Password
             with st.expander("🔑 Change Employee Password"):
                 target_user = st.selectbox("Select User", users_df['username'].values)
                 new_pass = st.text_input("New Password", type="password")
                 if st.button("Update Password"):
                     users_df.loc[users_df['username'] == target_user, 'password'] = new_pass
                     users_df.to_csv(users_file, index=False)
+                    st.cache_data.clear()
                     st.success(f"Password for {target_user} updated!")
 
-            # 3. Delete Employee
             with st.expander("🗑️ Remove Employee"):
                 del_user = st.selectbox("Select User to Remove", [u for u in users_df['username'].values if u not in ['jsafaa', 'ahatim']])
                 if st.button("Confirm Delete"):
                     users_df = users_df[users_df['username'] != del_user]
                     users_df.to_csv(users_file, index=False)
+                    st.cache_data.clear()
                     st.warning(f"User {del_user} removed from system.")
                     st.rerun()
 
