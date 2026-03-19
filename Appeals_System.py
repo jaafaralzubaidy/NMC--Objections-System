@@ -4,21 +4,20 @@ import streamlit_authenticator as stauth
 import os
 from datetime import datetime
 
-# --- إعدادات الواجهة واللوغو ---
+# --- إعدادات الواجهة ---
 st.set_page_config(page_title="NMC Objections System", layout="wide")
 
 st.markdown("""
     <style>
-    .main-title { font-size:45px !important; color: #1E3A8A; text-align: center; font-weight: bold; }
-    .sub-title { font-size:22px !important; color: #10B981; text-align: center; margin-bottom: 30px; }
+    .main-title { font-size:40px !important; color: #1E3A8A; text-align: center; font-weight: bold; }
+    .sub-title { font-size:20px !important; color: #10B981; text-align: center; margin-bottom: 20px; }
     </style>
     <div class="main-title">🌐 NMC Objections System</div>
     <p class="sub-title">Network Monitoring Center - Quality & Management Portal</p>
     <hr>
 """, unsafe_allow_html=True)
 
-# --- نظام المستخدمين (التعديل الجديد والمبسط) ---
-# هنا وضعنا اليوزرات والباسوردات مباشرة لتجنب الخطأ السابق
+# --- بيانات المستخدمين ---
 config = {
     'credentials': {
         'usernames': {
@@ -31,7 +30,6 @@ config = {
     'cookie': {'expiry_days': 30, 'key': 'nmc_auth_key', 'name': 'nmc_cookie'}
 }
 
-# تشغيل نظام تسجيل الدخول
 authenticator = stauth.Authenticate(
     config['credentials'],
     config['cookie']['name'],
@@ -39,20 +37,33 @@ authenticator = stauth.Authenticate(
     config['cookie']['expiry_days']
 )
 
-# عرض خانة تسجيل الدخول
-name, authentication_status, username = authenticator.login('main', 'main')
+# --- حل مشكلة سطر 43 (تعديل جذري) ---
+# نستخدم محاولة تجربة الطرق المختلفة لتسجيل الدخول حسب إصدار المكتبة
+try:
+    # الطريقة الحديثة (بدون باراميترات)
+    authenticator.login()
+except:
+    try:
+        # طريقة الإصدارات الوسطى
+        authenticator.login('main')
+    except:
+        # الطريقة القديمة
+        authenticator.login('Login', 'main')
 
-if authentication_status == False:
+# التأكد من حالة تسجيل الدخول من الـ session_state مباشرة
+if st.session_state.get("authentication_status") == False:
     st.error('الاسم أو الرمز السري غير صحيح')
-elif authentication_status == None:
+elif st.session_state.get("authentication_status") == None:
     st.info('يرجى تسجيل الدخول للوصول إلى نظام الاعتراضات')
-elif authentication_status:
+elif st.session_state.get("authentication_status"):
     
-    # زر تسجيل الخروج
+    name = st.session_state.get("name")
+    username = st.session_state.get("username")
+    
     authenticator.logout('Logout', 'sidebar')
     st.sidebar.success(f"أهلاً بك: {name}")
 
-    # --- إدارة قاعدة البيانات ---
+    # --- قاعدة البيانات ---
     file_name = "database_appeals.csv"
     if not os.path.exists(file_name):
         df = pd.DataFrame(columns=["Employee", "Date", "Ticket Number", "Tab", "Details", "Quality Decision", "Direct Manager"])
@@ -60,53 +71,33 @@ elif authentication_status:
     
     df = pd.read_csv(file_name)
 
-    # --- واجهة الأدمن والمدير ---
+    # --- واجهة الإدارة ---
     if username in ['admin', 'manager']:
-        st.subheader("🛠 لوحة التحكم - الإدارة والكوالتي")
+        st.subheader("🛠 لوحة التحكم")
         st.dataframe(df)
-
-        with st.expander("تحديث القرارات (الرد على الاعتراض)"):
-            if len(df) > 0:
-                row_to_update = st.number_input("أدخل رقم السطر المراد تعديله (يبدأ من 0)", min_value=0, max_value=len(df)-1, step=1)
-                col_dec, col_mgr = st.columns(2)
-                
-                with col_dec:
-                    q_desc = st.text_area("قرار الكوالتي (Quality Decision)")
-                with col_mgr:
-                    m_desc = st.text_area("قرار المدير المباشر (Direct Manager)")
-                
-                if st.button("حفظ وإرسال الرد"):
-                    df.loc[row_to_update, "Quality Decision"] = q_desc
-                    df.loc[row_to_update, "Direct Manager"] = m_desc
+        with st.expander("تعديل القرارات"):
+            if not df.empty:
+                row_idx = st.number_input("رقم السطر", 0, len(df)-1, 0)
+                q_dec = st.text_area("قرار الكوالتي")
+                m_dec = st.text_area("قرار المدير")
+                if st.button("حفظ"):
+                    df.loc[row_idx, "Quality Decision"] = q_dec
+                    df.loc[row_idx, "Direct Manager"] = m_dec
                     df.to_csv(file_name, index=False, encoding='utf-8-sig')
-                    st.success("تم تحديث القرار!")
+                    st.success("تم الحفظ!")
                     st.rerun()
-            else:
-                st.write("لا توجد اعتراضات حالياً.")
-
     # --- واجهة الموظف ---
     else:
-        tab1, tab2 = st.tabs(["تقديم اعتراض جديد", "سجل اعتراضاتي"])
-        
-        with tab1:
-            with st.form("employee_form"):
-                f_date = st.date_input("Date", datetime.now())
-                f_ticket = st.text_input("Ticket Number")
-                f_tab = st.selectbox("Tab / Shift", ["Morning", "Evening", "Night"])
-                f_details = st.text_area("Details")
-                
-                submit_btn = st.form_submit_button("Submit")
-                
-                if submit_btn:
-                    if not f_ticket or not f_details or not f_tab:
-                        st.error("❌ جميع الحقول مطلوبة!")
-                    else:
-                        new_row = {"Employee": name, "Date": str(f_date), "Ticket Number": f_ticket, 
-                                   "Tab": f_tab, "Details": f_details, "Quality Decision": "Pending", "Direct Manager": "Pending"}
-                        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-                        df.to_csv(file_name, index=False, encoding='utf-8-sig')
-                        st.success("✅ تم إرسال اعتراضك!")
-
-        with tab2:
-            user_data = df[df['Employee'] == name]
-            st.table(user_data)
+        t1, t2 = st.tabs(["إضافة اعتراض", "اعتراضاتي"])
+        with t1:
+            with st.form("f1"):
+                t_num = st.text_input("رقم التكت")
+                t_det = st.text_area("التفاصيل")
+                if st.form_submit_button("إرسال"):
+                    new_data = {"Employee": name, "Date": str(datetime.now().date()), "Ticket Number": t_num, 
+                                "Tab": "N/A", "Details": t_det, "Quality Decision": "Pending", "Direct Manager": "Pending"}
+                    df = pd.concat([df, pd.DataFrame([new_data])], ignore_index=True)
+                    df.to_csv(file_name, index=False, encoding='utf-8-sig')
+                    st.success("تم الإرسال!")
+        with t2:
+            st.table(df[df['Employee'] == name])
