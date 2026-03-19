@@ -4,14 +4,29 @@ import streamlit_authenticator as stauth
 import os
 from datetime import datetime, timedelta
 
-# --- 🚀 تحسين استجابة الصفحة ---
+# --- 🚀 تحسين استجابة الصفحة وتثبيت التنسيق ---
 st.set_page_config(page_title="NMC Objections Portal", layout="wide")
+
+# --- CSS لمعالجة مشكلة اللون الأبيض وضمان وضوح الكتابة ---
+st.markdown("""
+    <style>
+        .main-title { font-size:40px !important; color: #1E3A8A; text-align: center; font-weight: bold; }
+        /* ضمان أن تكون خلفية الـ Expander واضحة والكتابة بداخلها ظاهرة */
+        div[data-testid="stExpander"] { 
+            background-color: rgba(240, 242, 246, 0.5); 
+            border-radius: 10px; 
+            border: 1px solid #d1d5db;
+        }
+        /* إجبار النص في العناوين على اللون الداكن لزيادة الوضوح في الوضع الفاتح */
+        .stMarkdown h3 { color: #1E3A8A !important; }
+    </style>
+""", unsafe_allow_html=True)
 
 # --- File Names ---
 appeals_file = "database_appeals.csv"
 users_file = "users_list.csv"
 
-# --- 🛠️ دوال قراءة البيانات الذكية (تمنع الثقل) ---
+# --- 🛠️ دوال قراءة البيانات الذكية ---
 def get_all_data():
     if 'main_df' not in st.session_state:
         if not os.path.exists(appeals_file):
@@ -32,11 +47,10 @@ def get_users_df():
         st.session_state.u_df = pd.read_csv(users_file)
     return st.session_state.u_df
 
-# تحميل البيانات للعمل
 users_df = get_users_df()
 df_appeals = get_all_data()
 
-# --- Authenticator Setup (Caching Optimized) ---
+# --- Authenticator Setup ---
 if 'auth_obj' not in st.session_state:
     credentials = {'usernames': {}}
     for _, row in users_df.iterrows():
@@ -46,11 +60,7 @@ if 'auth_obj' not in st.session_state:
 authenticator = st.session_state.auth_obj
 
 # --- App Interface ---
-st.markdown("""<style>
-    .main-title { font-size:40px !important; color: #1E3A8A; text-align: center; font-weight: bold; }
-    div[data-testid="stExpander"] { background-color: #f9f9f9; border-radius: 10px; }
-</style>
-<div class="main-title">🛰️ NMC OBJECTIONS SYSTEM</div><hr>""", unsafe_allow_html=True)
+st.markdown('<div class="main-title">🛰️ NMC OBJECTIONS SYSTEM</div><hr>', unsafe_allow_html=True)
 
 try:
     authenticator.login()
@@ -62,7 +72,6 @@ if st.session_state.get("authentication_status"):
     username = st.session_state.get("username")
     authenticator.logout('Logout', 'sidebar')
     
-    # التأكد من وجود الأعمدة
     if "Objection Issue Date" not in df_appeals.columns:
         df_appeals["Objection Issue Date"] = ""
         df_appeals.to_csv(appeals_file, index=False)
@@ -88,10 +97,9 @@ if st.session_state.get("authentication_status"):
                         df_appeals.loc[row_idx, "Quality Decision"] = q_dec
                         df_appeals.loc[row_idx, "Direct Manager"] = m_dec
                         df_appeals.to_csv(appeals_file, index=False)
-                        st.session_state.pop('main_df') # مسح الكاش لإعادة القراءة
+                        st.session_state.pop('main_df')
                         st.success("Updated!")
                         st.rerun()
-        
         else:
             t_sub, t_hist = st.tabs(["📤 Submit", "📜 History"])
             with t_sub:
@@ -109,7 +117,7 @@ if st.session_state.get("authentication_status"):
                             new_row = {"Employee": st.session_state.get("name"), "Date": str(f_date), "Ticket Number": f_ticket, "Tab": f_tab, "Details": f_details, "Quality Decision": "Pending", "Direct Manager": "Pending", "Objection Issue Date": submission_time}
                             updated_df = pd.concat([df_appeals, pd.DataFrame([new_row])], ignore_index=True)
                             updated_df.to_csv(appeals_file, index=False)
-                            st.session_state.main_df = updated_df # تحديث اللحظي
+                            st.session_state.main_df = updated_df
                             st.success(f"Submitted at {submission_time}!"); st.balloons()
             with t_hist: 
                 st.dataframe(df_appeals[df_appeals['Employee'] == st.session_state.get("name")], use_container_width=True)
@@ -117,6 +125,7 @@ if st.session_state.get("authentication_status"):
     if username == 'jsafaa':
         with admin_users_tab:
             st.subheader("👥 Employee Directory Management")
+            # تم تعديل الخلفية هنا لضمان عدم اختفاء النص
             with st.expander("➕ Add New Employee"):
                 new_u = st.text_input("New Username").lower().strip()
                 new_n = st.text_input("Full Name (Display)")
