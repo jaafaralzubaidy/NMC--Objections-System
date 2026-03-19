@@ -40,7 +40,7 @@ authenticator = stauth.Authenticate(
 )
 
 # عرض خانة تسجيل الدخول
-name, authentication_status, username = authenticator.login(location='main')
+name, authentication_status, username = authenticator.login('main', 'main')
 
 if authentication_status == False:
     st.error('الاسم أو الرمز السري غير صحيح')
