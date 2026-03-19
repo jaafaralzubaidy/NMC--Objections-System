@@ -3,147 +3,140 @@ import pandas as pd
 import os
 from datetime import datetime, timedelta
 
-# --- 1. إعدادات الصفحة والوقت ---
-st.set_page_config(page_title="NMC Portal", layout="wide")
+# 1. إعدادات المتصفح والخط العربي
+st.set_page_config(page_title="نظام NMC", layout="wide")
 
-def get_baghdad_time():
-    # توقيت بغداد UTC+3
+# دالة الوقت - توقيت بغداد
+def جلب_الوقت():
     return (datetime.utcnow() + timedelta(hours=3)).strftime('%Y-%m-%d %H:%M:%S')
 
-# تصميم واجهة احترافية ثابتة (Dark Theme)
-st.markdown("""
-    <style>
-    .stApp { background-color: #0e1117; color: white; }
-    .header-box {
-        background-color: #1a1c24; padding: 25px; border-radius: 15px;
-        text-align: center; border-bottom: 5px solid #007bff; margin-bottom: 30px;
-    }
-    </style>
-    <div class="header-box">
-        <h1 style='margin:0; color:white;'>🚀 NMC OBJECTIONS SYSTEM</h1>
-        <p style='color:#007bff; font-weight:bold; font-size:18px;'>Stable & High-Performance Version</p>
-    </div>
-""", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center; color: #007bff;'>🚀 نظام الاعتراضات NMC - النسخة الإدارية الكاملة</h1>", unsafe_allow_html=True)
 
-# --- 2. إدارة ملفات البيانات ---
-u_file, a_file = "users_list.csv", "database_appeals.csv"
+# 2. تعريف ملفات البيانات
+ملف_المستخدمين = "users_list.csv"
+ملف_البيانات = "database_appeals.csv"
 
-# إنشاء الملفات إذا كانت مفقودة لضمان عدم حدوث Error
-if not os.path.exists(u_file):
-    pd.DataFrame([{"username":"jsafaa","password":"123","name":"J. SAFAA","role":"Admin"}]).to_csv(u_file, index=False)
+# إنشاء الملفات إذا كانت مفقودة لأول مرة
+if not os.path.exists(ملف_المستخدمين):
+    pd.DataFrame([{"username":"jsafaa","password":"123","name":"جاسم صفاء"}]).to_csv(ملف_المستخدمين, index=False)
 
-if not os.path.exists(a_file):
-    cols = ["Employee","Date","Ticket Number","Tab","Details","Quality Decision","Direct Manager","Objection Creation Date"]
-    pd.DataFrame(columns=cols).to_csv(a_file, index=False)
+# تعريف الأعمدة (تم إضافة عمود وقت الإنشاء ليعمل بشكل صحيح)
+أعمدة_النظام = ["الموظف", "التاريخ", "رقم_التكت", "القسم", "التفاصيل", "قرار_الجودة", "قرار_المدير", "وقت_إنشاء_الطلب"]
 
-u_df = pd.read_csv(u_file)
-a_df = pd.read_csv(a_file)
+if not os.path.exists(ملف_البيانات):
+    pd.DataFrame(columns=أعمدة_النظام).to_csv(ملف_البيانات, index=False)
 
-# ضمان وجود عمود "تاريخ إنشاء الاعتراض" في الـ DataFrame
-if "Objection Creation Date" not in a_df.columns:
-    a_df["Objection Creation Date"] = "N/A"
+# قراءة البيانات الحالية
+df_users = pd.read_csv(ملف_المستخدمين)
+df_main = pd.read_csv(ملف_البيانات)
 
-# --- 3. نظام البقاء مسجلاً (Session State) ---
+# ضمان وجود عمود الوقت في حال تم مسحه بالخطأ
+if "وقت_إنشاء_الطلب" not in df_main.columns:
+    df_main["وقت_إنشاء_الطلب"] = "N/A"
+
+# 3. نظام تسجيل الدخول (يبقى مسجلاً)
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 
 if not st.session_state.logged_in:
-    with st.container():
-        st.subheader("🔑 Sign In to Portal")
-        u_in = st.text_input("Username").lower().strip()
-        p_in = st.text_input("Password", type="password")
-        if st.button("Login"):
-            user_row = u_df[(u_df['username'] == u_in) & (u_df['password'].astype(str) == p_in)]
-            if not user_row.empty:
-                st.session_state.logged_in = True
-                st.session_state.username = u_in
-                st.session_state.name = user_row.iloc[0]['name']
-                st.rerun()
-            else:
-                st.error("❌ Invalid Username or Password")
+    st.subheader("🔑 تسجيل الدخول إلى النظام")
+    يوزر_ادخال = st.text_input("اسم المستخدم").lower().strip()
+    رمز_ادخال = st.text_input("كلمة المرور", type="password")
+    if st.button("دخول"):
+        فحص = df_users[(df_users['username'] == يوزر_ادخال) & (df_users['password'].astype(str) == رمز_ادخال)]
+        if not فحص.empty:
+            st.session_state.logged_in = True
+            st.session_state.user = يوزر_ادخال
+            st.session_state.name = فحص.iloc[0]['name']
+            st.rerun()
+        else:
+            st.error("اسم المستخدم أو كلمة المرور غير صحيحة")
 else:
-    # القائمة الجانبية للتسجيل الخروج
-    st.sidebar.markdown(f"### 👤 {st.session_state.name}")
-    if st.sidebar.button("Logout"):
+    # القائمة الجانبية
+    st.sidebar.success(f"مرحباً بك: {st.session_state.name}")
+    if st.sidebar.button("تسجيل الخروج"):
         st.session_state.logged_in = False
         st.rerun()
 
-    # التبويبات حسب الصلاحية (حصراً لـ jsafaa)
-    if st.session_state.username == 'jsafaa':
-        tab1, tab2 = st.tabs(["📊 Operations Portal", "👥 Admin: Manage Staff"])
+    # التبويبات (تظهر فقط للمدير jsafaa)
+    if st.session_state.user == 'jsafaa':
+        تبويب1, تبويب2 = st.tabs(["📊 بوابة الاعتراضات", "👥 إدارة الموظفين"])
     else:
-        tab1 = st.container()
+        تبويب1 = st.container()
 
-    # --- 4. واجهة العمليات ---
-    with tab1:
-        if st.session_state.username in ['jsafaa', 'ahatim']:
-            st.subheader("🛠 Control Panel")
-            # عرض الجدول مع عمود Objection Creation Date
-            st.dataframe(a_df, use_container_width=True)
-            
-            with st.expander("Update Decisions"):
-                if not a_df.empty:
-                    idx = st.number_input("Select Row Index", 0, len(a_df)-1, 0)
-                    c1, c2 = st.columns(2)
-                    with c1: q_v = st.text_area("Quality Decision", a_df.loc[idx, "Quality Decision"], disabled=(st.session_state.username == 'ahatim'))
-                    with c2: m_v = st.text_area("Manager Decision", a_df.loc[idx, "Direct Manager"], disabled=(st.session_state.username == 'jsafaa'))
-                    if st.button("Save Changes"):
-                        a_df.loc[idx, "Quality Decision"], a_df.loc[idx, "Direct Manager"] = q_v, m_v
-                        a_df.to_csv(a_file, index=False)
-                        st.success("Updated Successfully!")
-                        st.rerun()
+    # --- تبويب العمليات ---
+    with تبويب1:
+        if st.session_state.user in ['jsafaa', 'ahatim']:
+            st.subheader("🛠 لوحة التحكم والمراجعة")
+            st.dataframe(df_main, use_container_width=True)
+            with st.expander("تحديث القرارات الإدارية"):
+                رقم_الطلب = st.number_input("رقم الطلب (Index)", 0, len(df_main)-1, 0)
+                col_q, col_m = st.columns(2)
+                with col_q:
+                    قرار_ق = st.text_area("تعديل قرار الجودة", df_main.loc[رقم_الطلب, "قرار_الجودة"])
+                with col_m:
+                    قرار_م = st.text_area("تعديل قرار المدير", df_main.loc[رقم_الطلب, "قرار_المدير"])
+                if st.button("حفظ التحديث"):
+                    df_main.loc[رقم_الطلب, "قرار_الجودة"] = قرار_ق
+                    df_main.loc[رقم_الطلب, "قرار_المدير"] = قرار_م
+                    df_main.to_csv(ملف_البيانات, index=False)
+                    st.success("تم تحديث البيانات بنجاح")
+                    st.rerun()
         else:
+            # واجهة الموظف العادي
             with st.form("ob_form", clear_on_submit=True):
-                st.subheader("📤 Submit New Objection")
-                f1 = st.date_input("Incident Date")
-                f2 = st.text_input("Ticket Number")
-                f3 = st.selectbox("Category", ["SWITCH STATE", "Baghdad Rings", "MPLS", "EARTHLINK SERVICES", "Wireless", "Power"])
-                f4 = st.text_area("Details")
-                if st.form_submit_button("Submit"):
-                    if not f2 or not f4:
-                        st.error("❌ Please fill all fields.")
-                    else:
-                        new_r = {
-                            "Employee": st.session_state.name, "Date": str(f1), "Ticket Number": f2, 
-                            "Tab": f3, "Details": f4, "Quality Decision": "Pending", 
-                            "Direct Manager": "Pending", 
-                            "Objection Creation Date": get_baghdad_time() # هنا يتم التسجيل أوتوماتيكياً
-                        }
-                        a_df = pd.concat([a_df, pd.DataFrame([new_r])], ignore_index=True)
-                        a_df.to_csv(a_file, index=False)
-                        st.success("Objection Sent!")
-                        st.balloons()
+                st.subheader("📤 تقديم اعتراض جديد")
+                تاريخ_الحدث = st.date_input("تاريخ الحادثة")
+                رقم_التكت = st.text_input("رقم التكت")
+                القسم = st.selectbox("اختر القسم", ["SWITCH STATE", "MPLS", "Wireless", "Power", "AL-Watani"])
+                التفاصيل = st.text_area("شرح الأسباب والتفاصيل")
+                if st.form_submit_button("إرسال الاعتراض"):
+                    جديد = {
+                        "الموظف": st.session_state.name, "التاريخ": str(تاريخ_الحدث), 
+                        "رقم_التكت": رقم_التكت, "القسم": القسم, "التفاصيل": التفاصيل, 
+                        "قرار_الجودة": "Pending", "قرار_المدير": "Pending", 
+                        "وقت_إنشاء_الطلب": جلب_الوقت() # تسجيل الوقت بدقة
+                    }
+                    df_main = pd.concat([df_main, pd.DataFrame([جديد])], ignore_index=True)
+                    df_main.to_csv(ملف_البيانات, index=False)
+                    st.success("تم إرسال اعتراضك بنجاح")
+                    st.balloons()
             
             st.divider()
-            st.subheader("📜 Your Submission History")
-            st.table(a_df[a_df['Employee'] == st.session_state.name])
+            st.subheader("📜 سجل اعتراضاتي السابقة")
+            st.table(df_main[df_main['الموظف'] == st.session_state.name])
 
-    # --- 5. واجهة الآدمن (إضافة، تغيير باسورد، مسح) ---
-    if st.session_state.username == 'jsafaa':
-        with tab2:
-            st.subheader("👥 User Management Control")
-            col1, col2, col3 = st.columns(3)
+    # --- تبويب الإدارة (إضافة، مسح، باسورد) ---
+    if st.session_state.user == 'jsafaa':
+        with تبويب2:
+            st.subheader("👤 التحكم في حسابات الموظفين")
+            c1, c2, c3 = st.columns(3)
             
-            with col1:
-                with st.expander("➕ Add User"):
-                    new_u = st.text_input("Username").lower().strip()
-                    new_n = st.text_input("Full Name")
-                    if st.button("Add Now"):
-                        if new_u and new_u not in u_df['username'].values:
-                            u_df = pd.concat([u_df, pd.DataFrame([{"username":new_u,"password":"123","name":new_n,"role":"User"}])], ignore_index=True)
-                            u_df.to_csv(u_file, index=False); st.success(f"Added {new_n}!"); st.rerun()
+            with c1:
+                with st.expander("➕ إضافة موظف جديد"):
+                    يوزر_جديد = st.text_input("اسم المستخدم الجديد").lower().strip()
+                    اسم_جديد = st.text_input("الاسم الكامل للموظف")
+                    if st.button("تأكيد الإضافة"):
+                        if يوزر_جديد and يوزر_جديد not in df_users['username'].values:
+                            df_users = pd.concat([df_users, pd.DataFrame([{"username":يوزر_جديد,"password":"123","name":اسم_جديد}])], ignore_index=True)
+                            df_users.to_csv(ملف_المستخدمين, index=False)
+                            st.success(f"تمت إضافة {اسم_جديد} بنجاح")
+                            st.rerun()
 
-            with col2:
-                with st.expander("🔑 Change Password"):
-                    target = st.selectbox("Select User", u_df['username'].values)
-                    pass_val = st.text_input("New Password", type="password")
-                    if st.button("Update Pass"):
-                        u_df.loc[u_df['username'] == target, 'password'] = pass_val
-                        u_df.to_csv(u_file, index=False); st.success("Updated!")
+            with c2:
+                with st.expander("🔑 تغيير كلمة مرور"):
+                    الموظف_المستهدف = st.selectbox("اختر الموظف", df_users['username'].values)
+                    الرمز_الجديد = st.text_input("كلمة المرور الجديدة")
+                    if st.button("تحديث كلمة السر"):
+                        df_users.loc[df_users['username'] == الموظف_المستهدف, 'password'] = الرمز_الجديد
+                        df_users.to_csv(ملف_المستخدمين, index=False)
+                        st.success("تم تغيير كلمة المرور بنجاح")
 
-            with col3:
-                with st.expander("🗑️ Delete User"):
-                    del_u = st.selectbox("User to Delete", [u for u in u_df['username'].values if u != 'jsafaa'])
-                    if st.button("Confirm Delete"):
-                        u_df = u_df[u_df['username'] != del_u]
-                        u_df.to_csv(u_file, index=False); st.warning("Deleted."); st.rerun()
+            with c3:
+                with st.expander("🗑️ حذف حساب موظف"):
+                    يوزر_للحذف = st.selectbox("اختر الحساب المراد حذفه", [u for u in df_users['username'].values if u != 'jsafaa'])
+                    if st.button("حذف نهائي"):
+                        df_users = df_users[df_users['username'] != يوزر_للحذف]
+                        df_users.to_csv(ملف_المستخدمين, index=False)
+                        st.warning(f"تم حذف الحساب {يوزر_للحذف}")
+                        st.rerun()
