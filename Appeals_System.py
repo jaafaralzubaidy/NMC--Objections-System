@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import streamlit_authenticator as stauth
 import os
-from datetime import datetime
+from datetime import datetime, timedelta # أضفنا timedelta لضبط الوقت
 
 # --- Page Configuration ---
 st.set_page_config(page_title="NMC Objections Portal", layout="wide")
@@ -104,13 +104,15 @@ if st.session_state.get("authentication_status"):
                     f_tab = st.selectbox("Tab", ["SWITCH STATE", "Baghdad Rings", "MPLS", "EARTHLINK SERVICES", "Alwatani-Services", "BRIDGES", "Wireless", "IRQNBN", "ITPC", "MERTO", "NAS's", "Server Room", "Power", "AL-Watani Power"])
                     f_details = st.text_area("Details")
                     if st.form_submit_button("Submit"):
-                        today = datetime.now()
-                        if today.day >= 18 and f_date.day <= 15:
+                        # جلب التوقيت العالمي UTC وإضافة 3 ساعات ليكون توقيت بغداد
+                        baghdad_now = datetime.utcnow() + timedelta(hours=3)
+                        
+                        if baghdad_now.day >= 18 and f_date.day <= 15:
                             st.error("❌ Error: Exceeded objection period for 1st half.")
                         elif not f_ticket or not f_details: st.error("❌ Fill all fields!")
                         else:
-                            # تسجيل الوقت والتاريخ الحالي لحظة الضغط على الزر
-                            submission_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            # تنسيق وقت بغداد بصيغة نصية
+                            submission_time = baghdad_now.strftime("%Y-%m-%d %H:%M:%S")
                             
                             new_row = {
                                 "Employee": st.session_state.get("name"), 
@@ -120,10 +122,10 @@ if st.session_state.get("authentication_status"):
                                 "Details": f_details, 
                                 "Quality Decision": "Pending", 
                                 "Direct Manager": "Pending",
-                                "Objection Issue Date": submission_time # العمود الجديد
+                                "Objection Issue Date": submission_time 
                             }
                             df_appeals = pd.concat([df_appeals, pd.DataFrame([new_row])], ignore_index=True)
-                            df_appeals.to_csv(appeals_file, index=False); st.success(f"Submitted at {submission_time}!"); st.balloons()
+                            df_appeals.to_csv(appeals_file, index=False); st.success(f"Submitted at {submission_time} (Baghdad Time)!"); st.balloons()
             with t_hist: st.dataframe(df_appeals[df_appeals['Employee'] == st.session_state.get("name")], use_container_width=True)
 
     # --- ADMIN ONLY TAB: MANAGE STAFF ---
