@@ -4,38 +4,50 @@ import streamlit_authenticator as stauth
 import os
 from datetime import datetime
 
-# --- Page Configuration & Professional Styling ---
+# --- Page Configuration & Styling ---
 st.set_page_config(page_title="NMC Objections Portal", layout="wide")
 
 st.markdown("""
     <style>
     .main-title { font-size:40px !important; color: #1E3A8A; text-align: center; font-weight: bold; }
     .sub-title { font-size:20px !important; color: #4B5563; text-align: center; margin-bottom: 20px; }
-    .stButton>button { background-color: #1E3A8A; color: white; border-radius: 8px; }
+    .stButton>button { background-color: #1E3A8A; color: white; border-radius: 8px; width: 100%; }
     </style>
     <div class="main-title">🛰️ NMC OBJECTIONS SYSTEM</div>
     <p class="sub-title">Network Monitoring Center - Quality & Operations Management</p>
     <hr style="border: 1px solid #1E3A8A;">
 """, unsafe_allow_html=True)
 
-# --- User Credentials ---
-config = {
-    'credentials': {
-        'usernames': {
-            'admin': {'name': 'Quality Engineer', 'password': 'admin123'},
-            'manager': {'name': 'Direct Manager', 'password': 'manager123'},
-            'ahmed': {'name': 'Ahmed Ali', 'password': '123'},
-            'zaid': {'name': 'Zaid Hassan', 'password': '123'}
-        }
-    },
-    'cookie': {'expiry_days': 30, 'key': 'nmc_auth_key', 'name': 'nmc_cookie'}
-}
+# --- User Credentials (Updated List) ---
+# Your ID: jsafaa (Admin) | Manager ID: ahatim
+users_list = [
+    "ahatim", "mkhalid", "hfalah", "hmuayyad", "alimad", "rriyad", "hjabbar", 
+    "hmuhammada", "arubayi", "aadil", "ayasin", "fahmad", "hakali", "musadiq", 
+    "itsattar", "amusadaq", "aanbari", "afahad", "rthair", "omsubhi", "rwahab", 
+    "mlayth", "yasadi", "yriyad", "abfaysal", "hasanhadi", "hamuhsin", "aybasheer", 
+    "marmahmud", "abisameer", "jsafaa", "muhahamid", "murqasim", "moayad", 
+    "dadnan", "abiabbas", "qriyad", "tmustafa", "sbahnan", "admuhammad", 
+    "amohammad", "shzuhayr"
+]
+
+credentials = {'usernames': {}}
+for user in users_list:
+    # Default Password is '123' for everyone
+    pwd = '123'
+    name = user.upper()
+    
+    # Custom passwords/names for Admin and Manager
+    if user == 'jsafaa':
+        pwd = 'admin123'
+        name = "J. SAFAA (Quality Admin)"
+    elif user == 'ahatim':
+        pwd = 'manager123'
+        name = "A. HATIM (Manager)"
+        
+    credentials['usernames'][user] = {'name': name, 'password': pwd}
 
 authenticator = stauth.Authenticate(
-    config['credentials'],
-    config['cookie']['name'],
-    config['cookie']['key'],
-    config['cookie']['expiry_days']
+    credentials, 'nmc_cookie', 'nmc_auth_key', cookie_expiry_days=30
 )
 
 # --- Login Logic ---
@@ -56,23 +68,24 @@ elif st.session_state.get("authentication_status"):
     name = st.session_state.get("name")
     username = st.session_state.get("username")
     authenticator.logout('Logout', 'sidebar')
+    st.sidebar.success(f"Welcome: {name}")
 
-    # --- Database Initialization ---
+    # --- Database ---
     file_name = "database_appeals.csv"
     if not os.path.exists(file_name):
         pd.DataFrame(columns=["Employee", "Date", "Ticket Number", "Tab", "Details", "Quality Decision", "Direct Manager"]).to_csv(file_name, index=False)
     
     df = pd.read_csv(file_name)
 
-    # --- List of Tabs (As per your request) ---
+    # --- Tabs List ---
     tab_options = [
         "SWITCH STATE", "Baghdad Rings", "MPLS", "EARTHLINK SERVICES", 
         "Alwatani-Services", "BRIDGES", "Wireless", "IRQNBN", "ITPC", 
         "MERTO", "NAS's", "Server Room", "Power", "AL-Watani Power"
     ]
 
-    # --- ADMIN & MANAGER INTERFACE ---
-    if username in ['admin', 'manager']:
+    # --- ADMIN (jsafaa) & MANAGER (ahatim) INTERFACE ---
+    if username in ['jsafaa', 'ahatim']:
         st.subheader("🛠 MANAGEMENT CONTROL PANEL")
         st.dataframe(df, use_container_width=True)
         with st.expander("Update Decisions"):
@@ -84,13 +97,12 @@ elif st.session_state.get("authentication_status"):
                     df.loc[row_idx, "Quality Decision"] = q_dec
                     df.loc[row_idx, "Direct Manager"] = m_dec
                     df.to_csv(file_name, index=False)
-                    st.success("Updated successfully!")
+                    st.success("Updated!")
                     st.rerun()
 
     # --- EMPLOYEE INTERFACE ---
     else:
         t_sub, t_hist = st.tabs(["📤 Submit New Objection", "📜 My History"])
-        
         with t_sub:
             with st.form("objection_form"):
                 col1, col2 = st.columns(2)
@@ -98,14 +110,11 @@ elif st.session_state.get("authentication_status"):
                     f_date = st.date_input("Date", datetime.now())
                     f_ticket = st.text_input("Ticket Number")
                 with col2:
-                    # القائمة الجديدة هنا
                     f_tab = st.selectbox("Select Tab", tab_options)
-                    
                 f_details = st.text_area("Problem Details")
-                
                 if st.form_submit_button("Submit Objection"):
                     if not f_ticket or not f_details:
-                        st.error("Please fill all mandatory fields!")
+                        st.error("Please fill all fields!")
                     else:
                         new_entry = {
                             "Employee": name, "Date": str(f_date), "Ticket Number": f_ticket, 
@@ -114,8 +123,7 @@ elif st.session_state.get("authentication_status"):
                         }
                         df = pd.concat([df, pd.DataFrame([new_entry])], ignore_index=True)
                         df.to_csv(file_name, index=False)
-                        st.success("Objection submitted successfully! (Note: Submissions cannot be edited by employees)")
+                        st.success("Submitted! (Cannot be edited after submission)")
                         st.balloons()
-
         with t_hist:
             st.dataframe(df[df['Employee'] == name], use_container_width=True)
