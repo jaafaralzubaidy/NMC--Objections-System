@@ -1,130 +1,146 @@
 import streamlit as st
 import pandas as pd
+import streamlit_authenticator as stauth
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 
-# --- 1. CONFIG & UI ---
-st.set_page_config(page_title="NMC Portal", layout="wide")
+# --- Page Configuration ---
+st.set_page_config(page_title="NMC Objections Portal", layout="wide")
 
-def get_baghdad_time():
-    return (datetime.utcnow() + timedelta(hours=3)).strftime('%Y-%m-%d %H:%M:%S')
+# --- File Names ---
+appeals_file = "database_appeals.csv"
+users_file = "users_list.csv"
 
-st.markdown("""
-    <style>
-    .stApp { background-color: #1a1a1a; color: white; }
-    .header-box {
-        background-color: #262626; padding: 20px; border-radius: 10px;
-        text-align: center; border-bottom: 3px solid #007bff; margin-bottom: 20px;
+# --- Initialization of Users Database ---
+if not os.path.exists(users_file):
+    # القائمة الأولية التي أعطيتني إياها
+    initial_users = [
+        "ahatim", "mkhalid", "hfalah", "hmuayyad", "alimad", "rriyad", "hjabbar", 
+        "hmuhammada", "arubayi", "aadil", "ayasin", "fahmad", "hakali", "musadiq", 
+        "itsattar", "amusadaq", "aanbari", "afahad", "rthair", "omsubhi", "rwahab", 
+        "mlayth", "yasadi", "yriyad", "abfaysal", "hasanhadi", "hamuhsin", "aybasheer", 
+        "marmahmud", "abisameer", "jsafaa", "muhahamid", "murqasim", "moayad", 
+        "dadnan", "abiabbas", "qriyad", "tmustafa", "sbahnan", "admuhammad", 
+        "amohammad", "shzuhayr"
+    ]
+    user_data = []
+    for u in initial_users:
+        p = 'admin123' if u == 'jsafaa' else ('manager123' if u == 'ahatim' else '123')
+        role = 'Head Of Section' if u == 'ahatim' else ('Quality Engineer' if u == 'jsafaa' else 'Employee')
+        user_data.append({"username": u, "password": p, "name": u.upper(), "role": role})
+    pd.DataFrame(user_data).to_csv(users_file, index=False)
+
+# Load Users
+users_df = pd.read_csv(users_file)
+
+# --- Authenticator Setup ---
+credentials = {'usernames': {}}
+for _, row in users_df.iterrows():
+    credentials['usernames'][row['username']] = {
+        'name': f"{row['name']} ({row['role']})",
+        'password': str(row['password'])
     }
-    </style>
-    <div class="header-box">
-        <h2 style='margin:0; color:white;'>🚀 NMC OBJECTIONS SYSTEM</h2>
-        <p style='color:#888;'>Official English Version - Full Staff Database Loaded</p>
-    </div>
-""", unsafe_allow_html=True)
 
-# --- 2. PRE-DEFINED STAFF LIST (41 Users) ---
-# Setting jsafaa as Admin and ahatim as Head of Section
-staff_list = [
-    "jsafaa", "ahatim", "mkhalid", "hfalah", "hmuayyad", "alimad", "rriyad", "hjabbar", 
-    "hmuhammada", "arubayi", "aadil", "ayasin", "fahmad", "hakali", "musadiq", "itsattar", 
-    "amusadaq", "aanbari", "afahad", "rthair", "omsubhi", "rwahab", "mlayth", "yasadi", 
-    "yriyad", "abfaysal", "hasanhadi", "hamuhsin", "aybasheer", "marmahmud", "abisameer", 
-    "muhahamid", "murqasim", "moayad", "dadnan", "abiabbas", "qriyad", "tmustafa", 
-    "sbahnan", "admuhammad", "amohammad", "shzuhayr"
-]
+authenticator = stauth.Authenticate(credentials, 'nmc_cookie', 'nmc_auth_key', cookie_expiry_days=30)
 
-u_file, a_file = "users_list.csv", "database_appeals.csv"
-target_cols = ["Employee", "Date", "Ticket Number", "Tab", "Details", "Quality Decision", "Direct Manager Decision", "Objection Creation Date"]
+# --- App Interface ---
+st.markdown("""<style>.main-title { font-size:40px !important; color: #1E3A8A; text-align: center; font-weight: bold; }</style>
+<div class="main-title">🛰️ NMC OBJECTIONS SYSTEM</div><hr>""", unsafe_allow_html=True)
 
-# AUTO-REPAIR: If Arabic headers found or file missing, Rebuild!
-if not os.path.exists(u_file) or "username" not in pd.read_csv(u_file).columns:
-    users_data = []
-    for u in staff_list:
-        role = "Admin" if u == "jsafaa" else ("Manager" if u == "ahatim" else "Staff")
-        users_data.append({"username": u, "password": "123", "name": u.upper(), "role": role})
-    pd.DataFrame(users_data).to_csv(u_file, index=False)
+try:
+    authenticator.login()
+except:
+    try: authenticator.login('main')
+    except: authenticator.login('Login', 'main')
 
-if not os.path.exists(a_file) or "الموظف" in pd.read_csv(a_file).columns:
-    pd.DataFrame(columns=target_cols).to_csv(a_file, index=False)
-
-u_df = pd.read_csv(u_file)
-a_df = pd.read_csv(a_file)
-
-# --- 3. LOGIN ---
-if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = False
-
-if not st.session_state.logged_in:
-    st.subheader("🔑 Portal Sign-In")
-    u_in = st.text_input("Username").lower().strip()
-    p_in = st.text_input("Password", type="password")
-    if st.button("Login"):
-        auth = u_df[(u_df['username'] == u_in) & (u_df['password'].astype(str) == p_in)]
-        if not auth.empty:
-            st.session_state.logged_in = True
-            st.session_state.username = u_in
-            st.session_state.name = auth.iloc[0]['name']
-            st.session_state.role = auth.iloc[0]['role']
-            st.rerun()
-        else: st.error("Access Denied.")
-else:
-    # --- 4. INTERFACE ---
-    st.sidebar.title(f"👤 {st.session_state.name}")
-    st.sidebar.write(f"Role: {st.session_state.role}")
-    if st.sidebar.button("Logout"):
-        st.session_state.logged_in = False
-        st.rerun()
-
-    # Permissions Logic
-    is_admin = (st.session_state.username == 'jsafaa')
-    is_manager = (st.session_state.username == 'ahatim')
+if st.session_state.get("authentication_status"):
+    username = st.session_state.get("username")
+    authenticator.logout('Logout', 'sidebar')
     
-    if is_admin:
-        tab1, tab2 = st.tabs(["📊 Operations Portal", "👥 Admin: Manage Staff"])
-    else: tab1 = st.container()
+    # --- DATABASE LOAD ---
+    if not os.path.exists(appeals_file):
+        pd.DataFrame(columns=["Employee", "Date", "Ticket Number", "Tab", "Details", "Quality Decision", "Direct Manager"]).to_csv(appeals_file, index=False)
+    df_appeals = pd.read_csv(appeals_file)
 
-    with tab1:
-        st.subheader("📋 Objections Records")
-        # Full view for Admin and Section Head (ahatim)
-        view_df = a_df if (is_admin or is_manager) else a_df[a_df['Employee'] == st.session_state.name]
-        st.dataframe(view_df, use_container_width=True)
-        
-        # Decision Management (Preventing Error Red Box)
-        if (is_admin or is_manager) and not a_df.empty:
-            with st.expander("📝 Update Decisions"):
-                idx = st.number_input("Select Row Index", 0, len(a_df)-1, 0)
-                c1, c2 = st.columns(2)
-                with c1:
-                    q_v = st.text_area("Quality Decision (jsafaa)", a_df.loc[idx, "Quality Decision"], disabled=not is_admin)
-                with c2:
-                    m_v = st.text_area("Manager Decision (ahatim)", a_df.loc[idx, "Direct Manager Decision"], disabled=not is_manager)
-                if st.button("Save Updates"):
-                    a_df.loc[idx, "Quality Decision"], a_df.loc[idx, "Direct Manager Decision"] = q_v, m_v
-                    a_df.to_csv(a_file, index=False); st.success("Updated!"); st.rerun()
-        
-        # New Objection Submission
-        if not (is_admin or is_manager):
-            with st.form("ob_form", clear_on_submit=True):
-                st.subheader("📤 Submit Objection")
-                f1, f2 = st.date_input("Incident Date"), st.text_input("Ticket Number")
-                f3 = st.selectbox("Tab", ["SWITCH STATE", "MPLS", "Wireless", "Power", "AL-Watani"])
-                f4 = st.text_area("Details")
-                if st.form_submit_button("Send"):
-                    new_r = {
-                        "Employee": st.session_state.name, "Date": str(f1), "Ticket Number": f2, "Tab": f3, "Details": f4,
-                        "Quality Decision": "Pending", "Direct Manager Decision": "Pending", "Objection Creation Date": get_baghdad_time()
-                    }
-                    a_df = pd.concat([a_df, pd.DataFrame([new_r])], ignore_index=True)
-                    a_df.to_csv(a_file, index=False); st.success("Submitted!"); st.rerun()
+    # --- TABS FOR USER INTERFACE ---
+    if username == 'jsafaa':
+        main_tab, admin_users_tab = st.tabs(["📊 Main System", "👥 Manage Staff"])
+    else:
+        main_tab = st.container()
 
-    # User Management (Admin only)
-    if is_admin:
-        with tab2:
-            st.subheader("👥 Registered Staff")
-            st.dataframe(u_df[['username', 'name', 'role']], use_container_width=True)
-            with st.expander("⚠️ Danger Zone: Delete User"):
-                rem = st.selectbox("Select User to Remove", [u for u in u_df['username'].values if u != 'jsafaa'])
-                if st.button("Delete Permanently"):
-                    u_df = u_df[u_df['username'] != rem]
-                    u_df.to_csv(u_file, index=False); st.warning(f"User {rem} Deleted."); st.rerun()
+    with main_tab:
+        # --- ADMIN & MANAGER INTERFACE ---
+        if username in ['jsafaa', 'ahatim']:
+            st.subheader("🛠 MANAGEMENT CONTROL PANEL")
+            st.dataframe(df_appeals, use_container_width=True)
+            with st.expander("Update Decisions"):
+                if not df_appeals.empty:
+                    row_idx = st.number_input("Select Row ID", 0, len(df_appeals)-1, 0)
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        q_dec = st.text_area("Quality Decision", value=df_appeals.loc[row_idx, "Quality Decision"], disabled=(username == 'ahatim'))
+                    with col2:
+                        m_dec = st.text_area("Head Of Section Decision", value=df_appeals.loc[row_idx, "Direct Manager"], disabled=(username == 'jsafaa'))
+                    if st.button("Save Changes"):
+                        df_appeals.loc[row_idx, "Quality Decision"] = q_dec
+                        df_appeals.loc[row_idx, "Direct Manager"] = m_dec
+                        df_appeals.to_csv(appeals_file, index=False)
+                        st.success("Updated!")
+                        st.rerun()
+        
+        # --- EMPLOYEE INTERFACE ---
+        else:
+            t_sub, t_hist = st.tabs(["📤 Submit", "📜 History"])
+            with t_sub:
+                with st.form("obj_form"):
+                    f_date = st.date_input("Date", datetime.now()); f_ticket = st.text_input("Ticket Number")
+                    f_tab = st.selectbox("Tab", ["SWITCH STATE", "Baghdad Rings", "MPLS", "EARTHLINK SERVICES", "Alwatani-Services", "BRIDGES", "Wireless", "IRQNBN", "ITPC", "MERTO", "NAS's", "Server Room", "Power", "AL-Watani Power"])
+                    f_details = st.text_area("Details")
+                    if st.form_submit_button("Submit"):
+                        today = datetime.now()
+                        if today.day >= 18 and f_date.day <= 15:
+                            st.error("❌ Error: Exceeded objection period for 1st half.")
+                        elif not f_ticket or not f_details: st.error("❌ Fill all fields!")
+                        else:
+                            new_row = {"Employee": st.session_state.get("name"), "Date": str(f_date), "Ticket Number": f_ticket, "Tab": f_tab, "Details": f_details, "Quality Decision": "Pending", "Direct Manager": "Pending"}
+                            df_appeals = pd.concat([df_appeals, pd.DataFrame([new_row])], ignore_index=True)
+                            df_appeals.to_csv(appeals_file, index=False); st.success("Submitted!"); st.balloons()
+            with t_hist: st.dataframe(df_appeals[df_appeals['Employee'] == st.session_state.get("name")], use_container_width=True)
+
+    # --- ADMIN ONLY TAB: MANAGE STAFF ---
+    if username == 'jsafaa':
+        with admin_users_tab:
+            st.subheader("👥 Employee Directory Management")
+            
+            # 1. Add New Employee
+            with st.expander("➕ Add New Employee"):
+                new_u = st.text_input("New Username").lower().strip()
+                new_n = st.text_input("Full Name (Display)")
+                if st.button("Add to System"):
+                    if new_u and new_u not in users_df['username'].values:
+                        new_user_row = {"username": new_u, "password": "123", "name": new_n, "role": "Employee"}
+                        users_df = pd.concat([users_df, pd.DataFrame([new_user_row])], ignore_index=True)
+                        users_df.to_csv(users_file, index=False)
+                        st.success(f"User {new_u} added! Restart app to apply.")
+                    else: st.error("Invalid or existing username.")
+
+            # 2. Change Password
+            with st.expander("🔑 Change Employee Password"):
+                target_user = st.selectbox("Select User", users_df['username'].values)
+                new_pass = st.text_input("New Password", type="password")
+                if st.button("Update Password"):
+                    users_df.loc[users_df['username'] == target_user, 'password'] = new_pass
+                    users_df.to_csv(users_file, index=False)
+                    st.success(f"Password for {target_user} updated!")
+
+            # 3. Delete Employee
+            with st.expander("🗑️ Remove Employee"):
+                del_user = st.selectbox("Select User to Remove", [u for u in users_df['username'].values if u not in ['jsafaa', 'ahatim']])
+                if st.button("Confirm Delete"):
+                    users_df = users_df[users_df['username'] != del_user]
+                    users_df.to_csv(users_file, index=False)
+                    st.warning(f"User {del_user} removed from system.")
+                    st.rerun()
+
+elif st.session_state.get("authentication_status") == False: st.error("Wrong info")
+else: st.info("Please Login")
