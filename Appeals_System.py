@@ -7,7 +7,6 @@ from datetime import datetime
 # --- إعدادات الواجهة واللوغو ---
 st.set_page_config(page_title="NMC Objections System", layout="wide")
 
-# تصميم الواجهة بالألوان واللوغو
 st.markdown("""
     <style>
     .main-title { font-size:45px !important; color: #1E3A8A; text-align: center; font-weight: bold; }
@@ -18,20 +17,30 @@ st.markdown("""
     <hr>
 """, unsafe_allow_html=True)
 
-# --- نظام المستخدمين (أضف أسماء موظفيك هنا) ---
-# ملاحظة: الباسوردات الافتراضية '123'
-names = ['Admin Quality', 'Direct Manager', 'Ahmed Ali', 'Zaid Hassan']
-usernames = ['admin', 'manager', 'ahmed', 'zaid']
-passwords = ['admin123', 'manager123', '123', '123']
+# --- نظام المستخدمين (التعديل الجديد والمبسط) ---
+# هنا وضعنا اليوزرات والباسوردات مباشرة لتجنب الخطأ السابق
+config = {
+    'credentials': {
+        'usernames': {
+            'admin': {'name': 'Admin Quality', 'password': 'admin123'},
+            'manager': {'name': 'Direct Manager', 'password': 'manager123'},
+            'ahmed': {'name': 'Ahmed Ali', 'password': '123'},
+            'zaid': {'name': 'Zaid Hassan', 'password': '123'}
+        }
+    },
+    'cookie': {'expiry_days': 30, 'key': 'nmc_auth_key', 'name': 'nmc_cookie'}
+}
 
-hashed_passwords = stauth.Hasher(passwords).generate()
-
+# تشغيل نظام تسجيل الدخول
 authenticator = stauth.Authenticate(
-    {'usernames': {u: {'name': n, 'password': p} for u, n, p in zip(usernames, names, hashed_passwords)}},
-    'nmc_cookie', 'auth_key', cookie_expiry_days=30
+    config['credentials'],
+    config['cookie']['name'],
+    config['cookie']['key'],
+    config['cookie']['expiry_days']
 )
 
-name, authentication_status, username = authenticator.login('Login', 'main')
+# عرض خانة تسجيل الدخول
+name, authentication_status, username = authenticator.login(location='main')
 
 if authentication_status == False:
     st.error('الاسم أو الرمز السري غير صحيح')
@@ -39,7 +48,8 @@ elif authentication_status == None:
     st.info('يرجى تسجيل الدخول للوصول إلى نظام الاعتراضات')
 elif authentication_status:
     
-    authenticator.logout('تسجيل الخروج', 'sidebar')
+    # زر تسجيل الخروج
+    authenticator.logout('Logout', 'sidebar')
     st.sidebar.success(f"أهلاً بك: {name}")
 
     # --- إدارة قاعدة البيانات ---
@@ -50,56 +60,53 @@ elif authentication_status:
     
     df = pd.read_csv(file_name)
 
-    # --- واجهة الأدمن والمدير (Admin & Manager) ---
+    # --- واجهة الأدمن والمدير ---
     if username in ['admin', 'manager']:
         st.subheader("🛠 لوحة التحكم - الإدارة والكوالتي")
-        st.write("جدول الاعتراضات الحالي:")
         st.dataframe(df)
 
         with st.expander("تحديث القرارات (الرد على الاعتراض)"):
-            row_to_update = st.number_input("أدخل رقم السطر المراد تعديله (يبدأ من 0)", min_value=0, max_value=len(df)-1 if len(df)>0 else 0, step=1)
-            col_dec, col_mgr = st.columns(2)
-            
-            with col_dec:
-                q_desc = st.text_area("قرار الكوالتي (Quality Decision)")
-            with col_mgr:
-                m_desc = st.text_area("قرار المدير المباشر (Direct Manager)")
-            
-            if st.button("حفظ وإرسال الرد"):
-                df.loc[row_to_update, "Quality Decision"] = q_desc
-                df.loc[row_to_update, "Direct Manager"] = m_desc
-                df.to_csv(file_name, index=False, encoding='utf-8-sig')
-                st.success("تم تحديث القرار بنجاح!")
-                st.rerun()
+            if len(df) > 0:
+                row_to_update = st.number_input("أدخل رقم السطر المراد تعديله (يبدأ من 0)", min_value=0, max_value=len(df)-1, step=1)
+                col_dec, col_mgr = st.columns(2)
+                
+                with col_dec:
+                    q_desc = st.text_area("قرار الكوالتي (Quality Decision)")
+                with col_mgr:
+                    m_desc = st.text_area("قرار المدير المباشر (Direct Manager)")
+                
+                if st.button("حفظ وإرسال الرد"):
+                    df.loc[row_to_update, "Quality Decision"] = q_desc
+                    df.loc[row_to_update, "Direct Manager"] = m_desc
+                    df.to_csv(file_name, index=False, encoding='utf-8-sig')
+                    st.success("تم تحديث القرار!")
+                    st.rerun()
+            else:
+                st.write("لا توجد اعتراضات حالياً.")
 
-    # --- واجهة الموظف (Employee Page) ---
+    # --- واجهة الموظف ---
     else:
         tab1, tab2 = st.tabs(["تقديم اعتراض جديد", "سجل اعتراضاتي"])
         
         with tab1:
-            st.subheader("إضافة اعتراض")
             with st.form("employee_form"):
-                f_date = st.date_input("Date (التاريخ)", datetime.now())
-                f_ticket = st.text_input("Ticket Number (رقم التكت)")
+                f_date = st.date_input("Date", datetime.now())
+                f_ticket = st.text_input("Ticket Number")
                 f_tab = st.selectbox("Tab / Shift", ["Morning", "Evening", "Night"])
-                f_details = st.text_area("Details (شرح المشكلة)")
+                f_details = st.text_area("Details")
                 
-                submit_btn = st.form_submit_button("إرسال الاعتراض (Submit)")
+                submit_btn = st.form_submit_button("Submit")
                 
                 if submit_btn:
                     if not f_ticket or not f_details or not f_tab:
-                        st.error("❌ جميع الحقول المطلوبة (رقم التكت، التاريخ، الشفت، التفاصيل) إلزامية!")
+                        st.error("❌ جميع الحقول مطلوبة!")
                     else:
                         new_row = {"Employee": name, "Date": str(f_date), "Ticket Number": f_ticket, 
-                                   "Tab": f_tab, "Details": f_details, "Quality Decision": "قيد المراجعة", "Direct Manager": "قيد المراجعة"}
+                                   "Tab": f_tab, "Details": f_details, "Quality Decision": "Pending", "Direct Manager": "Pending"}
                         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
                         df.to_csv(file_name, index=False, encoding='utf-8-sig')
-                        st.success("✅ تم إرسال اعتراضك بنجاح!")
+                        st.success("✅ تم إرسال اعتراضك!")
 
         with tab2:
-            st.subheader("حالة اعتراضاتي السابقة")
             user_data = df[df['Employee'] == name]
-            if user_data.empty:
-                st.info("لا يوجد لديك اعتراضات مسجلة بعد.")
-            else:
-                st.table(user_data)
+            st.table(user_data)
