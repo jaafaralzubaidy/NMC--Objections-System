@@ -1,116 +1,111 @@
 import streamlit as st
 import pandas as pd
-import streamlit_authenticator as stauth
 import os
 from datetime import datetime, timedelta
 
-# --- 1. إعدادات الصفحة ---
+# --- 1. إعدادات سريعة جداً ---
 st.set_page_config(page_title="NMC Portal", layout="wide")
 
-# دالة لجلب وقت بغداد فقط عند "الضغط على زر" لتسجيل وقت الاعتراض
-def get_baghdad_now():
+# دالة الوقت (تعمل فقط عند الحفظ)
+def get_now():
     return (datetime.utcnow() + timedelta(hours=3)).strftime('%Y-%m-%d %H:%M:%S')
 
-# تصميم واجهة احترافية بسيطة جداً وغير ثقيلة
+# تصميم بسيط جداً (بدون صور أو تعقيد)
 st.markdown("""
     <style>
-    .stApp { background-color: #1E1E1E; }
-    .header-box {
-        background-color: #2D2D2D;
-        padding: 20px; border-radius: 10px; text-align: center;
-        color: white; margin-bottom: 20px;
-        border-bottom: 4px solid #007BFF;
-    }
+    .main { background-color: #f0f2f6; }
+    .stButton>button { width: 100%; border-radius: 5px; height: 3em; background-color: #007bff; color: white; }
     </style>
-    <div class="header-box">
-        <h1 style='margin:0;'>🚀 NMC OBJECTIONS SYSTEM</h1>
-        <p style='margin:5px; color:#BBB;'>Performance Optimized Mode</p>
-    </div>
+    <h2 style='text-align: center; color: #1f77b4;'>🚀 NMC OBJECTIONS SYSTEM - Fast Mode</h2>
+    <hr>
 """, unsafe_allow_html=True)
 
-# --- 2. إدارة ملفات البيانات ---
+# --- 2. إدارة البيانات (Simple CSV) ---
 u_file, a_file = "users_list.csv", "database_appeals.csv"
 
 if not os.path.exists(u_file):
-    pd.DataFrame([{"username":"jsafaa","password":"123","name":"J. SAFAA","role":"Quality Engineer"}]).to_csv(u_file, index=False)
+    pd.DataFrame([{"username":"jsafaa","password":"123","name":"J. SAFAA","role":"Quality"}]).to_csv(u_file, index=False)
+if not os.path.exists(a_file):
+    pd.DataFrame(columns=["Employee","Date","Ticket Number","Tab","Details","Quality Decision","Direct Manager","Objection Creation Date"]).to_csv(a_file, index=False)
 
 u_df = pd.read_csv(u_file)
-creds = {'usernames': {}}
-for _, r in u_df.iterrows():
-    creds['usernames'][r['username']] = {'name':f"{r['name']} ({r['role']})", 'password':str(r['password'])}
+a_df = pd.read_csv(a_file)
 
-auth = stauth.Authenticate(creds, 'nmc_c', 'nmc_k', 30)
+# --- 3. نظام دخول مبسط جداً (أسرع من المكتبات الخارجية) ---
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
 
-try: auth.login('main')
-except: auth.login()
+if not st.session_state.logged_in:
+    with st.form("login_form"):
+        st.subheader("Login")
+        user_input = st.text_input("Username").lower().strip()
+        pass_input = st.text_input("Password", type="password")
+        if st.form_submit_button("Sign In"):
+            user_row = u_df[(u_df['username'] == user_input) & (u_df['password'].astype(str) == pass_input)]
+            if not user_row.empty:
+                st.session_state.logged_in = True
+                st.session_state.username = user_input
+                st.session_state.name = user_row.iloc[0]['name']
+                st.session_state.role = user_row.iloc[0]['role']
+                st.rerun()
+            else:
+                st.error("Wrong username or password")
+else:
+    # --- 4. واجهة البرنامج بعد الدخول ---
+    st.sidebar.write(f"Welcome, **{st.session_state.name}**")
+    if st.sidebar.button("Logout"):
+        st.session_state.logged_in = False
+        st.rerun()
 
-if st.session_state.get("authentication_status"):
-    user = st.session_state.get("username")
-    auth.logout('Logout', 'sidebar')
-    
-    if not os.path.exists(a_file):
-        pd.DataFrame(columns=["Employee","Date","Ticket Number","Tab","Details","Quality Decision","Direct Manager","Objection Creation Date"]).to_csv(a_file, index=False)
-    df = pd.read_csv(a_file)
-
-    # --- 3. الواجهات الرئيسية ---
-    if user == 'jsafaa':
-        t_main, t_staff = st.tabs(["📊 Operations Portal", "👥 Manage Staff"])
+    # تبويبات بسيطة
+    if st.session_state.username == 'jsafaa':
+        tab1, tab2 = st.tabs(["📊 View Objections", "👥 Add Users"])
     else:
-        t_main = st.container()
+        tab1 = st.container()
 
-    with t_main:
-        if user in ['jsafaa', 'ahatim']:
-            st.subheader("🛠 Control Panel")
-            st.dataframe(df, use_container_width=True)
+    with tab1:
+        if st.session_state.username in ['jsafaa', 'ahatim']:
+            st.dataframe(a_df, use_container_width=True)
             with st.expander("Update Decisions"):
-                if not df.empty:
-                    idx = st.number_input("Select Row Index", 0, len(df)-1, 0)
-                    c1, c2 = st.columns(2)
-                    with c1: q = st.text_area("Quality Decision", df.loc[idx,"Quality Decision"], disabled=(user=='ahatim'))
-                    with c2: m = st.text_area("Manager Decision", df.loc[idx,"Direct Manager"], disabled=(user=='jsafaa'))
-                    if st.button("Save Changes"):
-                        df.loc[idx,"Quality Decision"], df.loc[idx,"Direct Manager"] = q, m
-                        df.to_csv(a_file, index=False); st.success("Saved Successfully!"); st.rerun()
+                if not a_df.empty:
+                    idx = st.number_input("Row Index", 0, len(a_df)-1, 0)
+                    q_val = st.text_input("Quality", a_df.loc[idx, "Quality Decision"])
+                    m_val = st.text_input("Manager", a_df.loc[idx, "Direct Manager"])
+                    if st.button("Update Now"):
+                        a_df.loc[idx, "Quality Decision"] = q_val
+                        a_df.loc[idx, "Direct Manager"] = m_val
+                        a_df.to_csv(a_file, index=False)
+                        st.success("Updated!")
+                        st.rerun()
         else:
-            with st.form("ob_form"):
-                st.subheader("📤 Submit New Objection")
-                f_d = st.date_input("Incident Date")
-                f_t = st.text_input("Ticket Number")
-                f_tb = st.selectbox("Tab", ["SWITCH STATE", "Baghdad Rings", "MPLS", "EARTHLINK SERVICES", "Alwatani-Services", "BRIDGES", "Wireless", "IRQNBN", "ITPC", "MERTO", "NAS's", "Server Room", "Power", "AL-Watani Power"])
-                f_dt = st.text_area("Details")
-                if st.form_submit_button("Submit Objection"):
-                    if not f_t or not f_dt:
-                        st.error("❌ Please fill all fields.")
-                    else:
-                        # يتم تسجيل التاريخ أوتوماتيكياً هنا فقط عند الضغط
-                        new_r = {
-                            "Employee": st.session_state.get("name"),
-                            "Date": str(f_d),
-                            "Ticket Number": f_t,
-                            "Tab": f_tb,
-                            "Details": f_dt,
-                            "Quality Decision": "Pending",
-                            "Direct Manager": "Pending",
-                            "Objection Creation Date": get_baghdad_now()
-                        }
-                        df = pd.concat([df, pd.DataFrame([new_r])], ignore_index=True)
-                        df.to_csv(a_file, index=False); st.success("Objection Sent!"); st.balloons()
+            with st.form("objection_form"):
+                st.subheader("New Objection")
+                d1 = st.date_input("Incident Date")
+                d2 = st.text_input("Ticket Number")
+                d3 = st.selectbox("Tab", ["SWITCH STATE", "MPLS", "Wireless", "Power", "Other"])
+                d4 = st.text_area("Details")
+                if st.form_submit_button("Submit"):
+                    new_data = {
+                        "Employee": st.session_state.name, "Date": str(d1),
+                        "Ticket Number": d2, "Tab": d3, "Details": d4,
+                        "Quality Decision": "Pending", "Direct Manager": "Pending",
+                        "Objection Creation Date": get_now()
+                    }
+                    a_df = pd.concat([a_df, pd.DataFrame([new_data])], ignore_index=True)
+                    a_df.to_csv(a_file, index=False)
+                    st.success("Submitted!")
+                    st.rerun()
             
-            st.divider()
-            st.subheader("📜 My Objections History")
-            st.table(df[df['Employee'] == st.session_state.get("name")])
+            st.subheader("My Records")
+            st.table(a_df[a_df['Employee'] == st.session_state.name])
 
-    if user == 'jsafaa':
-        with t_staff:
-            st.subheader("👥 User Management")
-            with st.expander("Add New Employee"):
-                nu = st.text_input("Username").lower().strip()
-                nn = st.text_input("Full Name")
-                if st.button("Add Employee"):
-                    if nu and nu not in u_df['username'].values:
-                        new_u = pd.DataFrame([{"username":nu,"password":"123","name":nn,"role":"Employee"}])
-                        u_df = pd.concat([u_df, new_u], ignore_index=True)
-                        u_df.to_csv(u_file, index=False); st.success(f"Added {nn} successfully!")
-
-elif st.session_state.get("authentication_status") == False: st.error("Invalid Username or Password")
-else: st.info("Welcome. Please log in to access the system.")
+    if st.session_state.username == 'jsafaa':
+        with tab2:
+            with st.form("add_user"):
+                new_u = st.text_input("New Username")
+                new_n = st.text_input("Full Name")
+                if st.form_submit_button("Add User"):
+                    new_row = {"username": new_u.lower().strip(), "password": "123", "name": new_n, "role": "Employee"}
+                    u_df = pd.concat([u_df, pd.DataFrame([new_row])], ignore_index=True)
+                    u_df.to_csv(u_file, index=False)
+                    st.success("User Added!")
