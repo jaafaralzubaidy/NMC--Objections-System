@@ -59,8 +59,15 @@ if st.session_state.get("authentication_status"):
     
     # --- DATABASE LOAD ---
     if not os.path.exists(appeals_file):
-        pd.DataFrame(columns=["Employee", "Date", "Ticket Number", "Tab", "Details", "Quality Decision", "Direct Manager"]).to_csv(appeals_file, index=False)
+        # إضافة العمود الجديد للهيكل الأساسي للملف
+        pd.DataFrame(columns=["Employee", "Date", "Ticket Number", "Tab", "Details", "Quality Decision", "Direct Manager", "Objection Issue Date"]).to_csv(appeals_file, index=False)
+    
     df_appeals = pd.read_csv(appeals_file)
+    
+    # التحقق من وجود العمود في حال كان الملف موجوداً مسبقاً بدون العمود الجديد
+    if "Objection Issue Date" not in df_appeals.columns:
+        df_appeals["Objection Issue Date"] = ""
+        df_appeals.to_csv(appeals_file, index=False)
 
     # --- TABS FOR USER INTERFACE ---
     if username == 'jsafaa':
@@ -102,9 +109,21 @@ if st.session_state.get("authentication_status"):
                             st.error("❌ Error: Exceeded objection period for 1st half.")
                         elif not f_ticket or not f_details: st.error("❌ Fill all fields!")
                         else:
-                            new_row = {"Employee": st.session_state.get("name"), "Date": str(f_date), "Ticket Number": f_ticket, "Tab": f_tab, "Details": f_details, "Quality Decision": "Pending", "Direct Manager": "Pending"}
+                            # تسجيل الوقت والتاريخ الحالي لحظة الضغط على الزر
+                            submission_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            
+                            new_row = {
+                                "Employee": st.session_state.get("name"), 
+                                "Date": str(f_date), 
+                                "Ticket Number": f_ticket, 
+                                "Tab": f_tab, 
+                                "Details": f_details, 
+                                "Quality Decision": "Pending", 
+                                "Direct Manager": "Pending",
+                                "Objection Issue Date": submission_time # العمود الجديد
+                            }
                             df_appeals = pd.concat([df_appeals, pd.DataFrame([new_row])], ignore_index=True)
-                            df_appeals.to_csv(appeals_file, index=False); st.success("Submitted!"); st.balloons()
+                            df_appeals.to_csv(appeals_file, index=False); st.success(f"Submitted at {submission_time}!"); st.balloons()
             with t_hist: st.dataframe(df_appeals[df_appeals['Employee'] == st.session_state.get("name")], use_container_width=True)
 
     # --- ADMIN ONLY TAB: MANAGE STAFF ---
