@@ -18,8 +18,7 @@ st.markdown("""
     <hr style="border: 1px solid #1E3A8A;">
 """, unsafe_allow_html=True)
 
-# --- User Credentials (Updated List) ---
-# Your ID: jsafaa (Admin) | Manager ID: ahatim
+# --- User Credentials ---
 users_list = [
     "ahatim", "mkhalid", "hfalah", "hmuayyad", "alimad", "rriyad", "hjabbar", 
     "hmuhammada", "arubayi", "aadil", "ayasin", "fahmad", "hakali", "musadiq", 
@@ -32,18 +31,14 @@ users_list = [
 
 credentials = {'usernames': {}}
 for user in users_list:
-    # Default Password is '123' for everyone
     pwd = '123'
     name = user.upper()
-    
-    # Custom passwords/names for Admin and Manager
     if user == 'jsafaa':
         pwd = 'admin123'
-        name = "J. SAFAA (Quality Admin)"
+        name = "J. SAFAA (Quality Engineer)"
     elif user == 'ahatim':
         pwd = 'manager123'
-        name = "A. HATIM (Manager)"
-        
+        name = "A. HATIM (Head Of Section)"
     credentials['usernames'][user] = {'name': name, 'password': pwd}
 
 authenticator = stauth.Authenticate(
@@ -78,26 +73,27 @@ elif st.session_state.get("authentication_status"):
     df = pd.read_csv(file_name)
 
     # --- Tabs List ---
-    tab_options = [
-        "SWITCH STATE", "Baghdad Rings", "MPLS", "EARTHLINK SERVICES", 
-        "Alwatani-Services", "BRIDGES", "Wireless", "IRQNBN", "ITPC", 
-        "MERTO", "NAS's", "Server Room", "Power", "AL-Watani Power"
-    ]
+    tab_options = ["SWITCH STATE", "Baghdad Rings", "MPLS", "EARTHLINK SERVICES", "Alwatani-Services", "BRIDGES", "Wireless", "IRQNBN", "ITPC", "MERTO", "NAS's", "Server Room", "Power", "AL-Watani Power"]
 
-    # --- ADMIN (jsafaa) & MANAGER (ahatim) INTERFACE ---
+    # --- ADMIN & MANAGER INTERFACE ---
     if username in ['jsafaa', 'ahatim']:
         st.subheader("🛠 MANAGEMENT CONTROL PANEL")
         st.dataframe(df, use_container_width=True)
         with st.expander("Update Decisions"):
             if not df.empty:
                 row_idx = st.number_input("Select Row ID", 0, len(df)-1, 0)
-                q_dec = st.text_area("Quality Decision", value=df.loc[row_idx, "Quality Decision"])
-                m_dec = st.text_area("Direct Manager Decision", value=df.loc[row_idx, "Direct Manager"])
+                col1, col2 = st.columns(2)
+                with col1:
+                    is_quality_disabled = (username == 'ahatim')
+                    q_dec = st.text_area("Quality Decision", value=df.loc[row_idx, "Quality Decision"], disabled=is_quality_disabled)
+                with col2:
+                    is_manager_disabled = (username == 'jsafaa')
+                    m_dec = st.text_area("Head Of Section Decision", value=df.loc[row_idx, "Direct Manager"], disabled=is_manager_disabled)
                 if st.button("Save Changes"):
                     df.loc[row_idx, "Quality Decision"] = q_dec
                     df.loc[row_idx, "Direct Manager"] = m_dec
                     df.to_csv(file_name, index=False)
-                    st.success("Updated!")
+                    st.success("Updated Successfully!")
                     st.rerun()
 
     # --- EMPLOYEE INTERFACE ---
@@ -107,14 +103,20 @@ elif st.session_state.get("authentication_status"):
             with st.form("objection_form"):
                 col1, col2 = st.columns(2)
                 with col1:
-                    f_date = st.date_input("Date", datetime.now())
+                    f_date = st.date_input("Date of Issue", datetime.now())
                     f_ticket = st.text_input("Ticket Number")
                 with col2:
                     f_tab = st.selectbox("Select Tab", tab_options)
                 f_details = st.text_area("Problem Details")
+                
                 if st.form_submit_button("Submit Objection"):
-                    if not f_ticket or not f_details:
-                        st.error("Please fill all fields!")
+                    today = datetime.now()
+                    # --- منطق التحقق من الوقت (Time Locking Logic) ---
+                    # إذا كان اليوم الحالي هو 18 أو أكثر، وكان التاريخ المختار قبل يوم 16
+                    if today.day >= 18 and f_date.day <= 15 and f_date.month == today.month:
+                        st.error("❌ Error: You have exceeded the objection period for the first half of the month.")
+                    elif not f_ticket or not f_details:
+                        st.error("❌ Error: Please fill all fields!")
                     else:
                         new_entry = {
                             "Employee": name, "Date": str(f_date), "Ticket Number": f_ticket, 
@@ -123,7 +125,7 @@ elif st.session_state.get("authentication_status"):
                         }
                         df = pd.concat([df, pd.DataFrame([new_entry])], ignore_index=True)
                         df.to_csv(file_name, index=False)
-                        st.success("Submitted! (Cannot be edited after submission)")
+                        st.success("Submitted Successfully!")
                         st.balloons()
         with t_hist:
             st.dataframe(df[df['Employee'] == name], use_container_width=True)
