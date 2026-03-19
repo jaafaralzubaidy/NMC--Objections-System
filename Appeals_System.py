@@ -11,16 +11,13 @@ st.set_page_config(page_title="NMC Objections Portal", layout="wide")
 st.markdown("""
     <style>
         .main-title { font-size:40px !important; color: #1E3A8A; text-align: center; font-weight: bold; }
-        /* ضمان أن تكون خلفية الـ Expander واضحة والكتابة بداخلها ظاهرة */
         div[data-testid="stExpander"] { 
             background-color: rgba(240, 242, 246, 0.5); 
             border-radius: 10px; 
             border: 1px solid #d1d5db;
         }
-        /* إجبار النص في العناوين على اللون الداكن لزيادة الوضوح في الوضع الفاتح */
         .stMarkdown h3 { color: #1E3A8A !important; }
-        /* تنسيق إضافي لاسم المستخدم في السايدبار */
-        .user-name-sidebar { color: #4CAF50; font-weight: bold; font-size: 18px; }
+        .user-name-sidebar { color: #4CAF50; font-weight: bold; font-size: 18px; margin-bottom: 10px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -52,11 +49,12 @@ def get_users_df():
 users_df = get_users_df()
 df_appeals = get_all_data()
 
-# --- Authenticator Setup ---
+# --- Authenticator Setup (تم التعديل لضمان قراءة البيانات دائماً) ---
+credentials = {'usernames': {}}
+for _, row in users_df.iterrows():
+    credentials['usernames'][row['username']] = {'name': f"{row['name']} ({row['role']})", 'password': str(row['password'])}
+
 if 'auth_obj' not in st.session_state:
-    credentials = {'usernames': {}}
-    for _, row in users_df.iterrows():
-        credentials['usernames'][row['username']] = {'name': f"{row['name']} ({row['role']})", 'password': str(row['password'])}
     st.session_state.auth_obj = stauth.Authenticate(credentials, 'nmc_cookie', 'nmc_auth_key', cookie_expiry_days=30)
 
 authenticator = st.session_state.auth_obj
@@ -73,9 +71,10 @@ except:
 if st.session_state.get("authentication_status"):
     username = st.session_state.get("username")
     
-    # --- التعديل المطلوب لعرض اسم المستخدم صاحب الحساب ---
-    display_name = credentials['usernames'][username]['name']
-    st.sidebar.markdown(f'<div class="user-name-sidebar">👤 {display_name}</div>', unsafe_allow_html=True)
+    # --- عرض اسم الموظف صاحب الحساب في السايدبار ---
+    if username in credentials['usernames']:
+        display_name = credentials['usernames'][username]['name']
+        st.sidebar.markdown(f'<div class="user-name-sidebar">👤 {display_name}</div>', unsafe_allow_html=True)
     
     authenticator.logout('Logout', 'sidebar')
     
@@ -132,7 +131,6 @@ if st.session_state.get("authentication_status"):
     if username == 'jsafaa':
         with admin_users_tab:
             st.subheader("👥 Employee Directory Management")
-            # تم تعديل الخلفية هنا لضمان عدم اختفاء النص
             with st.expander("➕ Add New Employee"):
                 new_u = st.text_input("New Username").lower().strip()
                 new_n = st.text_input("Full Name (Display)")
