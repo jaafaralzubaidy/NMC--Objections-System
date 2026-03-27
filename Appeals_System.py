@@ -29,6 +29,14 @@ st.markdown("""
             margin-bottom: 20px;
             font-size: 18px;
         }
+        /* Stats Box Styling */
+        [data-testid="stMetric"] {
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -94,11 +102,12 @@ if st.session_state.get("authentication_status"):
         df_appeals["Objection Issue Date"] = ""
         df_appeals.to_csv(appeals_file, index=False)
 
-    # --- 🔔 Management Notification System ---
+    # --- 🔔 Management Notification System & 📊 Statistics (For Jassim & Hatim Only) ---
     if username in ['jsafaa', 'ahatim']:
         # Filter for entries that are "Pending" from either side
         pending_obs = df_appeals[(df_appeals['Quality Decision'] == 'Pending') | (df_appeals['Direct Manager'] == 'Pending')]
         
+        # 1. Notification Banner
         if not pending_obs.empty:
             unique_employees = pending_obs['Employee'].unique()
             names_str = ", ".join(unique_employees)
@@ -107,6 +116,18 @@ if st.session_state.get("authentication_status"):
                     🔔 ALERT: Pending objections waiting for review from: {names_str}
                 </div>
             """, unsafe_allow_html=True)
+
+        # 2. Statistics Row (الأرقام التي تظهر لك ولحاتم فقط)
+        st.subheader("📈 System Statistics Overview")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Objections", len(df_appeals))
+        with col2:
+            st.metric("Pending Review", len(pending_obs))
+        with col3:
+            accepted_count = len(df_appeals[(df_appeals['Quality Decision'] == 'Accepted') & (df_appeals['Direct Manager'] == 'Accepted')])
+            st.metric("Fully Accepted", accepted_count)
+        st.divider()
 
     # Tab System
     if username == 'jsafaa':
@@ -131,7 +152,8 @@ if st.session_state.get("authentication_status"):
                         df_appeals.loc[row_idx, "Quality Decision"] = q_dec
                         df_appeals.loc[row_idx, "Direct Manager"] = m_dec
                         df_appeals.to_csv(appeals_file, index=False)
-                        st.session_state.pop('main_df')
+                        if 'main_df' in st.session_state:
+                            st.session_state.pop('main_df')
                         st.success("Changes Saved Successfully!")
                         st.rerun()
         else:
@@ -145,7 +167,6 @@ if st.session_state.get("authentication_status"):
                     
                     if st.form_submit_button("Submit"):
                         baghdad_now = datetime.utcnow() + timedelta(hours=3)
-                        # Your custom date restriction rule
                         if baghdad_now.day >= 18 and f_date.day <= 15:
                             st.error("❌ Access Denied: Deadline for 1st half of the month has passed.")
                         elif not f_ticket or not f_details: 
