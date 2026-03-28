@@ -27,7 +27,7 @@ users_file = "users_list.csv"
 # --- 🛠️ Data Loading Functions ---
 def get_all_data():
     if not os.path.exists(appeals_file):
-        pd.DataFrame(columns=["Employee", "Date", "Ticket Number", "KPI", "Tab", "Details", "Quality Decision", "Direct Manager", "Objection Issue Date", "Admin Notes/Comment"]).to_csv(appeals_file, index=False)
+        pd.DataFrame(columns=["Employee", "Date", "Ticket Number", "KPI", "Tab", "Details", "Quality Decision", "Direct Manager", "Objection Issue Date", "Admin Notes"]).to_csv(appeals_file, index=False)
     return pd.read_csv(appeals_file)
 
 def get_users_df():
@@ -52,53 +52,51 @@ df_appeals = get_all_data()
 # --- Authenticator Setup ---
 credentials = {'usernames': {}}
 for _, row in users_df.iterrows():
-    credentials['usernames'][str(row['username'])] = {'name': f"{row['name']} ({row['role']})", 'password': str(row['password'])}
+    credentials['usernames'][str(row['username'])] = {'name': str(row['name']), 'password': str(row['password']), 'role': str(row['role'])}
 
-authenticator = stauth.Authenticate(credentials, 'nmc_cookie', 'nmc_auth_key', cookie_expiry_days=30)
+# حل مشكلة الـ Login والـ Cookies
+authenticator = stauth.Authenticate(credentials, 'nmc_objections_cookie', 'auth_key_123', cookie_expiry_days=30)
 
-# --- App Interface ---
+# واجهة الدخول
 st.markdown('<div class="main-title">🛰️ NMC OBJECTIONS SYSTEM</div><hr>', unsafe_allow_html=True)
 
-# تصحيح دالة الدخول لتعمل على كل النسخ
-try:
-    name, authentication_status, username = authenticator.login('main')
-except:
-    name, authentication_status, username = authenticator.login(location='main')
+# استدعاء الدخول بشكل متوافق مع نسخة المكتبة عندك
+res = authenticator.login('main')
+if st.session_state["authentication_status"]:
+    username = st.session_state["username"]
+    full_name = credentials['usernames'][username]['name']
+    
+    # جلب معلومات المستخدم من الملف للتحقق من أول دخول
+    user_info = users_df[users_df['username'] == username].iloc[0]
 
-if authentication_status:
-    # جلب حالة المستخدم الحالية بدقة
-    user_status = users_df[users_df['username'] == username].iloc[0]
-
-    # --- 🛡️ Forced Password Change Logic ---
-    if user_status['first_login']:
-        st.warning("⚠️ SECURITY: You must change your password to access the system.")
-        with st.form("force_password_change"):
+    # --- 🛡️ Forced Password Change ---
+    if user_info['first_login']:
+        st.warning("⚠️ Security: You must change your password to continue.")
+        with st.form("pwd_form"):
             new_p = st.text_input("New Password", type="password")
             conf_p = st.text_input("Confirm Password", type="password")
-            if st.form_submit_button("Update Password"):
+            if st.form_submit_button("Update"):
                 if new_p == conf_p and len(new_p) >= 3:
                     users_df.loc[users_df['username'] == username, ['password', 'first_login']] = [new_p, False]
                     users_df.to_csv(users_file, index=False)
-                    st.success("Updated! Please refresh the page.")
+                    st.success("Password Updated! Please login again.")
+                    st.session_state["authentication_status"] = None
                     st.rerun()
                 else: st.error("Mismatch or too short!")
         st.stop()
 
-    st.sidebar.markdown(f'<div class="user-name-sidebar">👤 {name}</div>', unsafe_allow_html=True)
+    st.sidebar.markdown(f'<div class="user-name-sidebar">👤 {full_name}</div>', unsafe_allow_html=True)
     authenticator.logout('Logout', 'sidebar')
-    
-    # --- Statistics (Admin Only) ---
+
+    # --- 📊 Statistics (Admin Only) ---
     if username in ['jsafaa', 'ahatim']:
         pending_obs = df_appeals[(df_appeals['Quality Decision'] == 'Pending') | (df_appeals['Direct Manager'] == 'Pending')]
-        c1, c2, c3, c4 = st.columns(4)
-        with c1: st.markdown(f'<div class="stat-card" style="background-color: #e3f2fd;"><div class="stat-label">Total</div><div class="stat-value">{len(df_appeals)}</div></div>', unsafe_allow_html=True)
-        with c2: st.markdown(f'<div class="stat-card" style="background-color: #fff3e0;"><div class="stat-label">Pending</div><div class="stat-value">{len(pending_obs)}</div></div>', unsafe_allow_html=True)
+        c1, c2, c3 = st.columns(3)
+        with c1: st.markdown(f'<div class="stat-card" style="background-color:#e3f2fd;"><div class="stat-label">Total</div><div class="stat-value">{len(df_appeals)}</div></div>', unsafe_allow_html=True)
+        with c2: st.markdown(f'<div class="stat-card" style="background-color:#fff3e0;"><div class="stat-label">Pending</div><div class="stat-value">{len(pending_obs)}</div></div>', unsafe_allow_html=True)
         with c3:
-            acc = len(df_appeals[(df_appeals['Quality Decision'].str.contains('Accept', na=False)) & (df_appeals['Direct Manager'].str.contains('approve', na=False, case=False))])
-            st.markdown(f'<div class="stat-card" style="background-color: #e8f5e9;"><div class="stat-label">Accepted</div><div class="stat-value">{acc}</div></div>', unsafe_allow_html=True)
-        with c4:
-            rej = len(df_appeals[(df_appeals['Quality Decision'].str.contains('Reject', na=False))])
-            st.markdown(f'<div class="stat-card" style="background-color: #ffebee;"><div class="stat-label">Rejected</div><div class="stat-value">{rej}</div></div>', unsafe_allow_html=True)
+            acc = len(df_appeals[df_appeals['Quality Decision'].str.contains('Accept', na=False, case=False)])
+            st.markdown(f'<div class="stat-card" style="background-color:#e8f5e9;"><div class="stat-label">Accepted</div><div class="stat-value">{acc}</div></div>', unsafe_allow_html=True)
 
     # --- Tabs ---
     if username == 'jsafaa':
@@ -110,59 +108,58 @@ if authentication_status:
         if username in ['jsafaa', 'ahatim']:
             st.subheader("🛠 MANAGEMENT CONTROL PANEL")
             st.dataframe(df_appeals, use_container_width=True)
-            with st.expander("Update Decisions & Notes"):
+            with st.expander("Update Decisions"):
                 if not df_appeals.empty:
-                    row_idx = st.number_input("Select Row ID", 0, len(df_appeals)-1, 0)
+                    idx = st.number_input("Select Row Index", 0, len(df_appeals)-1, 0)
                     col1, col2 = st.columns(2)
-                    with col1: q_dec = st.selectbox("Quality Decision", ["Pending", "Accepted", "Rejected"], index=0, disabled=(username == 'ahatim'))
-                    with col2: m_dec = st.selectbox("Head Of Section Decision", ["Pending", "approved", "rejected"], index=0, disabled=(username == 'jsafaa'))
-                    note = st.text_area("Admin Notes/Comment", value=str(df_appeals.loc[row_idx, "Admin Notes/Comment"]) if "Admin Notes/Comment" in df_appeals.columns else "")
-                    if st.button("Save Updates"):
-                        df_appeals.loc[row_idx, ["Quality Decision", "Direct Manager", "Admin Notes/Comment"]] = [q_dec, m_dec, note]
+                    with col1: q_dec = st.text_area("Quality Decision", value=str(df_appeals.loc[idx, "Quality Decision"]), disabled=(username == 'ahatim'))
+                    with col2: m_dec = st.text_area("Head Of Section Decision", value=str(df_appeals.loc[idx, "Direct Manager"]), disabled=(username == 'jsafaa'))
+                    if st.button("Save Changes"):
+                        df_appeals.loc[idx, ["Quality Decision", "Direct Manager"]] = [q_dec, m_dec]
                         df_appeals.to_csv(appeals_file, index=False)
-                        st.success("Saved!"); st.rerun()
+                        st.success("Updated!"); st.rerun()
         else:
-            t_sub, t_hist = st.tabs(["📤 Submit Objection", "📜 History"])
-            with t_sub:
+            t1, t2 = st.tabs(["📤 Submit Objection", "📜 History"])
+            with t1:
                 with st.form("obj_form", clear_on_submit=True):
                     f_date = st.date_input("Incident Date", datetime.now())
                     f_ticket = st.text_input("Ticket Number")
+                    # --- KPI Field ---
                     f_kpi = st.selectbox("KPI Type", ["Done Delay", "Done Delay Response", "High MTTD", "Shift Delay", "Delay High Impact", "Closing Issue", "Reduce Number Of Incident", "FMS", "Delay FMS", "Number Of Delay FMS", "No Task"])
                     f_tab = st.selectbox("Department", ["SWITCH STATE", "Baghdad Rings", "MPLS", "EARTHLINK SERVICES", "Alwatani-Services", "BRIDGES", "Wireless", "IRQNBN", "ITPC", "MERTO", "NAS's", "Server Room", "Power", "AL-Watani Power"])
-                    f_details = st.text_area("Objection Details")
+                    f_details = st.text_area("Details")
                     if st.form_submit_button("Submit"):
                         baghdad_now = datetime.utcnow() + timedelta(hours=3)
                         if baghdad_now.day >= 18 and f_date.day <= 15:
-                            st.error("❌ Deadline passed.")
-                        elif not f_ticket or not f_details: st.error("❌ Fill all fields!")
+                            st.error("❌ Deadline passed (18th of month).")
+                        elif not f_ticket or not f_details: st.error("❌ Please fill all fields!")
                         else:
-                            submission_time = baghdad_now.strftime("%Y-%m-%d %H:%M:%S")
-                            new_row = {"Employee": name.split(' (')[0], "Date": str(f_date), "Ticket Number": f_ticket, "KPI": f_kpi, "Tab": f_tab, "Details": f_details, "Quality Decision": "Pending", "Direct Manager": "Pending", "Objection Issue Date": submission_time, "Admin Notes/Comment": ""}
+                            new_row = {"Employee": full_name, "Date": str(f_date), "Ticket Number": f_ticket, "KPI": f_kpi, "Tab": f_tab, "Details": f_details, "Quality Decision": "Pending", "Direct Manager": "Pending", "Objection Issue Date": baghdad_now.strftime("%Y-%m-%d %H:%M:%S")}
                             df_appeals = pd.concat([df_appeals, pd.DataFrame([new_row])], ignore_index=True)
                             df_appeals.to_csv(appeals_file, index=False)
                             st.success("Submitted!"); st.rerun()
-            with t_hist:
-                st.dataframe(df_appeals[df_appeals['Employee'] == name.split(' (')[0]], use_container_width=True)
+            with t2:
+                st.dataframe(df_appeals[df_appeals['Employee'] == full_name], use_container_width=True)
 
     if username == 'jsafaa':
         with admin_users_tab:
             st.subheader("👥 Staff Management")
-            with st.expander("➕ Add New"):
-                nu = st.text_input("New Username").lower().strip()
-                nn = st.text_input("Full Name")
+            with st.expander("➕ Add New Employee"):
+                nu = st.text_input("Username").lower().strip()
+                nn = st.text_input("Display Name")
                 if st.button("Register"):
                     if nu and nu not in users_df['username'].values:
-                        new_u = {"username": nu, "password": "123", "name": nn.upper(), "role": "Employee", "first_login": True}
+                        new_u = {"username": nu, "password": "123", "name": nn, "role": "Employee", "first_login": True}
                         users_df = pd.concat([users_df, pd.DataFrame([new_u])], ignore_index=True)
                         users_df.to_csv(users_file, index=False)
-                        st.success("Registered!"); st.rerun()
+                        st.success(f"User {nu} added!"); st.rerun()
 
             with st.expander("🔑 Force Reset Password"):
                 target = st.selectbox("Select User", users_df['username'].values)
-                if st.button("Reset to 123"):
+                if st.button("Reset to 123 & Force Change"):
                     users_df.loc[users_df['username'] == target, ['password', 'first_login']] = ["123", True]
                     users_df.to_csv(users_file, index=False)
-                    st.success("Password reset to 123. They must change it on login."); st.rerun()
+                    st.success("Updated!"); st.rerun()
 
-elif authentication_status is False: st.error("Wrong Login")
-else: st.info("Please Login")
+elif st.session_state["authentication_status"] is False: st.error("Username/password is incorrect")
+elif st.session_state["authentication_status"] is None: st.info("Please enter your username and password")
