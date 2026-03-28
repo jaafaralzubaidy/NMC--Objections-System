@@ -64,9 +64,16 @@ def get_users_df():
             for u in initial_users:
                 p = 'admin123' if u == 'jsafaa' else ('manager123' if u == 'ahatim' else '123')
                 role = 'Head Of Section' if u == 'ahatim' else ('Quality Engineer' if u == 'jsafaa' else 'Employee')
-                user_data.append({"username": u, "password": p, "name": u.upper(), "role": role})
+                # إضافة عمود first_login هنا
+                user_data.append({"username": u, "password": p, "name": u.upper(), "role": role, "first_login": True})
             pd.DataFrame(user_data).to_csv(users_file, index=False)
-        st.session_state.u_df = pd.read_csv(users_file)
+        
+        temp_df = pd.read_csv(users_file)
+        # تأكد أن العمود موجود في الملف في حال كان الملف قديماً
+        if "first_login" not in temp_df.columns:
+            temp_df["first_login"] = True
+            temp_df.to_csv(users_file, index=False)
+        st.session_state.u_df = temp_df
     return st.session_state.u_df
 
 users_df = get_users_df()
@@ -94,6 +101,36 @@ except:
 if st.session_state.get("authentication_status"):
     username = st.session_state.get("username")
     
+    # جلب معلومات المستخدم الحالي للتحقق من أول دخول
+    user_row = users_df[users_df['username'] == username].iloc[0]
+    is_first_login = user_row['first_login']
+
+    if is_first_login:
+        # --- 🔒 إجبار المستخدم على تغيير كلمة المرور ---
+        st.warning("⚠️ Security Alert: This is your first login. You must change your default password to continue.")
+        with st.form("change_password_form"):
+            new_pwd = st.text_input("New Password", type="password")
+            conf_pwd = st.text_input("Confirm New Password", type="password")
+            submit_change = st.form_submit_button("Update Password & Enter System")
+
+            if submit_change:
+                if len(new_pwd) < 3:
+                    st.error("Password is too short!")
+                elif new_pwd != conf_pwd:
+                    st.error("Passwords do not match!")
+                else:
+                    # تحديث كلمة المرور وحالة أول دخول في الـ DataFrame والملف
+                    users_df.loc[users_df['username'] == username, 'password'] = new_pwd
+                    users_df.loc[users_df['username'] == username, 'first_login'] = False
+                    users_df.to_csv(users_file, index=False)
+                    
+                    # تنظيف الـ session state لإعادة التحميل بالبيانات الجديدة
+                    if 'u_df' in st.session_state: st.session_state.pop('u_df')
+                    st.success("Password updated successfully! Redirecting...")
+                    st.rerun()
+        st.stop() # يمنع ظهور باقي الكود حتى يغير الباسورد
+
+    # --- الكود الأصلي بعد تغيير الباسورد ---
     if username in credentials['usernames']:
         display_name = credentials['usernames'][username]['name']
         st.sidebar.markdown(f'<div class="user-name-sidebar">👤 {display_name}</div>', unsafe_allow_html=True)
@@ -190,7 +227,8 @@ if st.session_state.get("authentication_status"):
                 new_n = st.text_input("Full Name (Display)")
                 if st.button("Register User"):
                     if new_u and new_u not in users_df['username'].values:
-                        new_user_row = {"username": new_u, "password": "123", "name": new_n, "role": "Employee"}
+                        # إضافة first_login هنا أيضاً للمستخدمين الجدد
+                        new_user_row = {"username": new_u, "password": "123", "name": new_n, "role": "Employee", "first_login": True}
                         users_df = pd.concat([users_df, pd.DataFrame([new_user_row])], ignore_index=True)
                         users_df.to_csv(users_file, index=False)
                         st.session_state.pop('u_df'); st.success("User registered!"); st.rerun()
@@ -200,6 +238,8 @@ if st.session_state.get("authentication_status"):
                 new_pass = st.text_input("New Password", type="password")
                 if st.button("Confirm Reset"):
                     users_df.loc[users_df['username'] == target_user, 'password'] = new_pass
+                    # عند تصفير الباسورد من الأدمن، هل تريد إجباره مرة أخرى؟ إذا نعم، اجعل السطر التالي True
+                    users_df.loc[users_df['username'] == target_user, 'first_login'] = False 
                     users_df.to_csv(users_file, index=False)
                     st.session_state.pop('u_df'); st.success(f"Updated {target_user}!")
 
