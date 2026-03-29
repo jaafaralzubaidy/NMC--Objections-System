@@ -51,25 +51,20 @@ def get_users_df():
 users_df = get_users_df()
 df_appeals = get_all_data()
 
-# --- Authenticator Setup (High Speed Iteration) ---
+# --- Authenticator Setup ---
 credentials = {'usernames': {}}
-# تم الاستغناء عن iterrows البطيئة واستبدالها بـ itertuples السريعة جداً
 for row in users_df.itertuples(index=False):
     credentials['usernames'][str(row.username)] = {'name': str(row.name), 'password': str(row.password), 'role': str(row.role)}
 
-# حل مشكلة الـ Login والـ Cookies
 authenticator = stauth.Authenticate(credentials, 'nmc_objections_cookie', 'auth_key_123', cookie_expiry_days=30)
 
 # واجهة الدخول
 st.markdown('<div class="main-title">🛰️ NMC OBJECTIONS SYSTEM</div><hr>', unsafe_allow_html=True)
 
-# استدعاء الدخول بشكل متوافق مع نسخة المكتبة عندك
 res = authenticator.login('main')
 if st.session_state["authentication_status"]:
     username = st.session_state["username"]
     full_name = credentials['usernames'][username]['name']
-    
-    # جلب معلومات المستخدم من الملف للتحقق من أول دخول
     user_info = users_df[users_df['username'] == username].iloc[0]
 
     # --- 🛡️ Forced Password Change ---
@@ -82,7 +77,7 @@ if st.session_state["authentication_status"]:
                 if new_p == conf_p and len(new_p) >= 3:
                     users_df.loc[users_df['username'] == username, ['password', 'first_login']] = [new_p, False]
                     users_df.to_csv(users_file, index=False)
-                    get_users_df.clear() # Clear cache
+                    get_users_df.clear()
                     st.success("Password Updated! Please login again.")
                     st.session_state["authentication_status"] = None
                     st.rerun()
@@ -96,12 +91,11 @@ if st.session_state["authentication_status"]:
     if username in ['jsafaa', 'ahatim']:
         pending_obs = df_appeals[(df_appeals['Quality Decision'] == 'Pending') | (df_appeals['Direct Manager'] == 'Pending')]
         c1, c2, c3 = st.columns(3)
-        # تم تغيير الألوان لتكون أوضح وأكثر احترافية
         with c1: st.markdown(f'<div class="stat-card" style="background-color:#E1BEE7;"><div class="stat-label">Total</div><div class="stat-value">{len(df_appeals)}</div></div>', unsafe_allow_html=True)
         with c2: st.markdown(f'<div class="stat-card" style="background-color:#FFCC80;"><div class="stat-label">Pending</div><div class="stat-value">{len(pending_obs)}</div></div>', unsafe_allow_html=True)
         with c3:
-            acc = len(df_appeals[df_appeals['Quality Decision'].str.contains('Accept', na=False, case=False)])
-            st.markdown(f'<div class="stat-card" style="background-color:#C8E6C9;"><div class="stat-label">Accepted</div><div class="stat-value">{acc}</div></div>', unsafe_allow_html=True)
+            acc = len(df_appeals[(df_appeals['Quality Decision'] == 'Accepted') & (df_appeals['Direct Manager'] == 'Accepted')])
+            st.markdown(f'<div class="stat-card" style="background-color:#C8E6C9;"><div class="stat-label">Fully Accepted</div><div class="stat-value">{acc}</div></div>', unsafe_allow_html=True)
 
     # --- Tabs ---
     if username == 'jsafaa':
@@ -112,25 +106,49 @@ if st.session_state["authentication_status"]:
     with main_tab:
         if username in ['jsafaa', 'ahatim']:
             st.subheader("🛠 MANAGEMENT CONTROL PANEL")
-            st.dataframe(df_appeals, use_container_width=True)
+            
+            # عرض الحالة النهائية في الجدول للآدمن
+            df_display = df_appeals.copy()
+            def get_final_status(row):
+                if row['Quality Decision'] == 'Accepted' and row['Direct Manager'] == 'Accepted': return "✅ Fully Accepted"
+                if row['Quality Decision'] == 'Rejected' and row['Direct Manager'] == 'Rejected': return "❌ Fully Rejected"
+                return "⏳ Processing"
+            
+            df_display['Final Status'] = df_display.apply(get_final_status, axis=1)
+            st.dataframe(df_display, use_container_width=True)
+
             with st.expander("Update Decisions"):
                 if not df_appeals.empty:
                     idx = st.number_input("Select Row Index", 0, len(df_appeals)-1, 0)
                     col1, col2 = st.columns(2)
-                    with col1: q_dec = st.text_area("Quality Decision", value=str(df_appeals.loc[idx, "Quality Decision"]), disabled=(username == 'ahatim'))
-                    with col2: m_dec = st.text_area("Head Of Section Decision", value=str(df_appeals.loc[idx, "Direct Manager"]), disabled=(username == 'jsafaa'))
+                    options = ["Pending", "Accepted", "Rejected"]
+                    
+                    with col1:
+                        current_q = df_appeals.loc[idx, "Quality Decision"]
+                        q_idx = options.index(current_q) if current_q in options else 0
+                        q_dec = st.selectbox("Quality Decision", options, index=q_idx, disabled=(username == 'ahatim'))
+                    
+                    with col2:
+                        current_m = df_appeals.loc[idx, "Direct Manager"]
+                        m_idx = options.index(current_m) if current_m in options else 0
+                        m_dec = st.selectbox("Head Of Section Decision", options, index=m_idx, disabled=(username == 'jsafaa'))
+                    
                     if st.button("Save Changes"):
-                        df_appeals.loc[idx, ["Quality Decision", "Direct Manager"]] = [q_dec, m_dec]
+                        # حفظ القرار المختار فقط حسب صلاحية المستخدم
+                        if username == 'jsafaa':
+                            df_appeals.loc[idx, "Quality Decision"] = q_dec
+                        if username == 'ahatim':
+                            df_appeals.loc[idx, "Direct Manager"] = m_dec
+                            
                         df_appeals.to_csv(appeals_file, index=False)
-                        get_all_data.clear() # Clear cache
-                        st.success("Updated!"); st.rerun()
+                        get_all_data.clear()
+                        st.success("Decision Updated!"); st.rerun()
         else:
             t1, t2 = st.tabs(["📤 Submit Objection", "📜 History"])
             with t1:
                 with st.form("obj_form", clear_on_submit=True):
                     f_date = st.date_input("Incident Date", datetime.now())
                     f_ticket = st.text_input("Ticket Number")
-                    # --- KPI Field ---
                     f_kpi = st.selectbox("KPI Type", ["Done Delay", "Done Delay Response", "High MTTD", "Shift Delay", "Delay High Impact", "Closing Issue", "Reduce Number Of Incident", "FMS", "Delay FMS", "Number Of Delay FMS", "No Task"])
                     f_tab = st.selectbox("Department", ["SWITCH STATE", "Baghdad Rings", "MPLS", "EARTHLINK SERVICES", "Alwatani-Services", "BRIDGES", "Wireless", "IRQNBN", "ITPC", "MERTO", "NAS's", "Server Room", "Power", "AL-Watani Power"])
                     f_details = st.text_area("Details")
@@ -143,10 +161,19 @@ if st.session_state["authentication_status"]:
                             new_row = {"Employee": full_name, "Date": str(f_date), "Ticket Number": f_ticket, "KPI": f_kpi, "Tab": f_tab, "Details": f_details, "Quality Decision": "Pending", "Direct Manager": "Pending", "Objection Issue Date": baghdad_now.strftime("%Y-%m-%d %H:%M:%S")}
                             df_appeals = pd.concat([df_appeals, pd.DataFrame([new_row])], ignore_index=True)
                             df_appeals.to_csv(appeals_file, index=False)
-                            get_all_data.clear() # Clear cache
+                            get_all_data.clear()
                             st.success("Submitted!"); st.rerun()
             with t2:
-                st.dataframe(df_appeals[df_appeals['Employee'] == full_name], use_container_width=True)
+                user_history = df_appeals[df_appeals['Employee'] == full_name].copy()
+                # إضافة منطق الـ Fully Accepted للموظف ليراها في تاريخه
+                def check_status(row):
+                    if row['Quality Decision'] == 'Accepted' and row['Direct Manager'] == 'Accepted': return "✅ Fully Accepted"
+                    if row['Quality Decision'] == 'Rejected' and row['Direct Manager'] == 'Rejected': return "❌ Fully Rejected"
+                    return "⏳ Pending Review"
+                
+                if not user_history.empty:
+                    user_history['Final Status'] = user_history.apply(check_status, axis=1)
+                st.dataframe(user_history, use_container_width=True)
 
     if username == 'jsafaa':
         with admin_users_tab:
@@ -159,7 +186,7 @@ if st.session_state["authentication_status"]:
                         new_u = {"username": nu, "password": "123", "name": nn, "role": "Employee", "first_login": True}
                         users_df = pd.concat([users_df, pd.DataFrame([new_u])], ignore_index=True)
                         users_df.to_csv(users_file, index=False)
-                        get_users_df.clear() # Clear cache
+                        get_users_df.clear()
                         st.success(f"User {nu} added!"); st.rerun()
 
             with st.expander("🔑 Force Reset Password"):
@@ -167,17 +194,16 @@ if st.session_state["authentication_status"]:
                 if st.button("Reset to 123 & Force Change"):
                     users_df.loc[users_df['username'] == target, ['password', 'first_login']] = ["123", True]
                     users_df.to_csv(users_file, index=False)
-                    get_users_df.clear() # Clear cache
+                    get_users_df.clear()
                     st.success("Updated!"); st.rerun()
                     
-            # تم إضافة ميزة مسح الموظف هنا
             with st.expander("🗑️ Delete Employee"):
                 users_list = [u for u in users_df['username'].values if u not in ['jsafaa', 'ahatim']]
                 target_del = st.selectbox("Select User to Delete", users_list)
                 if st.button("Delete User"):
                     users_df = users_df[users_df['username'] != target_del]
                     users_df.to_csv(users_file, index=False)
-                    get_users_df.clear() # Clear cache
+                    get_users_df.clear()
                     st.success(f"User {target_del} deleted successfully!")
                     st.rerun()
 
