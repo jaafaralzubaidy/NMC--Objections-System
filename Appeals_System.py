@@ -24,12 +24,14 @@ st.markdown("""
 appeals_file = "database_appeals.csv"
 users_file = "users_list.csv"
 
-# --- 🛠️ Data Loading Functions ---
+# --- 🛠️ Data Loading Functions (Optimized for Speed) ---
+@st.cache_data
 def get_all_data():
     if not os.path.exists(appeals_file):
         pd.DataFrame(columns=["Employee", "Date", "Ticket Number", "KPI", "Tab", "Details", "Quality Decision", "Direct Manager", "Objection Issue Date", "Admin Notes"]).to_csv(appeals_file, index=False)
     return pd.read_csv(appeals_file)
 
+@st.cache_data
 def get_users_df():
     if not os.path.exists(users_file):
         initial_users = ["ahatim", "mkhalid", "hfalah", "hmuayyad", "alimad", "rriyad", "hjabbar", "hmuhammada", "arubayi", "aadil", "ayasin", "fahmad", "hakali", "musadiq", "itsattar", "amusadaq", "aanbari", "afahad", "rthair", "omsubhi", "rwahab", "mlayth", "yasadi", "yriyad", "abfaysal", "hasanhadi", "hamuhsin", "aybasheer", "marmahmud", "abisameer", "jsafaa", "muhahamid", "murqasim", "moayad", "dadnan", "abiabbas", "qriyad", "tmustafa", "sbahnan", "admuhammad", "amohammad", "shzuhayr"]
@@ -79,6 +81,7 @@ if st.session_state["authentication_status"]:
                 if new_p == conf_p and len(new_p) >= 3:
                     users_df.loc[users_df['username'] == username, ['password', 'first_login']] = [new_p, False]
                     users_df.to_csv(users_file, index=False)
+                    get_users_df.clear() # Clear cache
                     st.success("Password Updated! Please login again.")
                     st.session_state["authentication_status"] = None
                     st.rerun()
@@ -92,11 +95,12 @@ if st.session_state["authentication_status"]:
     if username in ['jsafaa', 'ahatim']:
         pending_obs = df_appeals[(df_appeals['Quality Decision'] == 'Pending') | (df_appeals['Direct Manager'] == 'Pending')]
         c1, c2, c3 = st.columns(3)
-        with c1: st.markdown(f'<div class="stat-card" style="background-color:#e3f2fd;"><div class="stat-label">Total</div><div class="stat-value">{len(df_appeals)}</div></div>', unsafe_allow_html=True)
-        with c2: st.markdown(f'<div class="stat-card" style="background-color:#fff3e0;"><div class="stat-label">Pending</div><div class="stat-value">{len(pending_obs)}</div></div>', unsafe_allow_html=True)
+        # تم تغيير الألوان لتكون أوضح وأكثر احترافية
+        with c1: st.markdown(f'<div class="stat-card" style="background-color:#E1BEE7;"><div class="stat-label">Total</div><div class="stat-value">{len(df_appeals)}</div></div>', unsafe_allow_html=True)
+        with c2: st.markdown(f'<div class="stat-card" style="background-color:#FFCC80;"><div class="stat-label">Pending</div><div class="stat-value">{len(pending_obs)}</div></div>', unsafe_allow_html=True)
         with c3:
             acc = len(df_appeals[df_appeals['Quality Decision'].str.contains('Accept', na=False, case=False)])
-            st.markdown(f'<div class="stat-card" style="background-color:#e8f5e9;"><div class="stat-label">Accepted</div><div class="stat-value">{acc}</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="stat-card" style="background-color:#C8E6C9;"><div class="stat-label">Accepted</div><div class="stat-value">{acc}</div></div>', unsafe_allow_html=True)
 
     # --- Tabs ---
     if username == 'jsafaa':
@@ -117,6 +121,7 @@ if st.session_state["authentication_status"]:
                     if st.button("Save Changes"):
                         df_appeals.loc[idx, ["Quality Decision", "Direct Manager"]] = [q_dec, m_dec]
                         df_appeals.to_csv(appeals_file, index=False)
+                        get_all_data.clear() # Clear cache
                         st.success("Updated!"); st.rerun()
         else:
             t1, t2 = st.tabs(["📤 Submit Objection", "📜 History"])
@@ -137,6 +142,7 @@ if st.session_state["authentication_status"]:
                             new_row = {"Employee": full_name, "Date": str(f_date), "Ticket Number": f_ticket, "KPI": f_kpi, "Tab": f_tab, "Details": f_details, "Quality Decision": "Pending", "Direct Manager": "Pending", "Objection Issue Date": baghdad_now.strftime("%Y-%m-%d %H:%M:%S")}
                             df_appeals = pd.concat([df_appeals, pd.DataFrame([new_row])], ignore_index=True)
                             df_appeals.to_csv(appeals_file, index=False)
+                            get_all_data.clear() # Clear cache
                             st.success("Submitted!"); st.rerun()
             with t2:
                 st.dataframe(df_appeals[df_appeals['Employee'] == full_name], use_container_width=True)
@@ -152,6 +158,7 @@ if st.session_state["authentication_status"]:
                         new_u = {"username": nu, "password": "123", "name": nn, "role": "Employee", "first_login": True}
                         users_df = pd.concat([users_df, pd.DataFrame([new_u])], ignore_index=True)
                         users_df.to_csv(users_file, index=False)
+                        get_users_df.clear() # Clear cache
                         st.success(f"User {nu} added!"); st.rerun()
 
             with st.expander("🔑 Force Reset Password"):
@@ -159,7 +166,19 @@ if st.session_state["authentication_status"]:
                 if st.button("Reset to 123 & Force Change"):
                     users_df.loc[users_df['username'] == target, ['password', 'first_login']] = ["123", True]
                     users_df.to_csv(users_file, index=False)
+                    get_users_df.clear() # Clear cache
                     st.success("Updated!"); st.rerun()
+                    
+            # تم إضافة ميزة مسح الموظف هنا
+            with st.expander("🗑️ Delete Employee"):
+                users_list = [u for u in users_df['username'].values if u not in ['jsafaa', 'ahatim']]
+                target_del = st.selectbox("Select User to Delete", users_list)
+                if st.button("Delete User"):
+                    users_df = users_df[users_df['username'] != target_del]
+                    users_df.to_csv(users_file, index=False)
+                    get_users_df.clear() # Clear cache
+                    st.success(f"User {target_del} deleted successfully!")
+                    st.rerun()
 
 elif st.session_state["authentication_status"] is False: st.error("Username/password is incorrect")
 elif st.session_state["authentication_status"] is None: st.info("Please enter your username and password")
