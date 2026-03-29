@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 # --- 🚀 Page Configuration ---
 st.set_page_config(page_title="NMC Objections Portal", layout="wide")
 
-# --- 🎨 Custom CSS ---
+# --- 🎨 Custom CSS (تنسيق البطاقات والألوان) ---
 st.markdown("""
     <style>
         .main-title { font-size:40px !important; color: #1E3A8A; text-align: center; font-weight: bold; }
@@ -20,7 +20,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 📂 Data Files Setup ---
+# --- 📂 Data Files Setup (حل مشكلة الملفات الفارغة) ---
 appeals_file = "database_appeals.csv"
 users_file = "users_list.csv"
 
@@ -30,9 +30,10 @@ def check_csv(file, columns):
 
 check_csv(appeals_file, ["Employee", "Date", "Ticket Number", "KPI", "Tab", "Details", "Quality Decision", "Direct Manager", "Objection Issue Date", "Admin Notes"])
 
-# --- ⚡ Session State & Users ---
+# --- ⚡ Session State ---
 if 'users_df' not in st.session_state:
     if not os.path.exists(users_file) or os.stat(users_file).st_size == 0:
+        # حل خطأ السطر 34: صياغة أنظف لبيانات المستخدمين
         initial_users = ["ahatim", "jsafaa"]
         user_data = []
         for u in initial_users:
@@ -45,7 +46,7 @@ if 'users_df' not in st.session_state:
 if 'df_appeals' not in st.session_state:
     st.session_state.df_appeals = pd.read_csv(appeals_file)
 
-# --- 🔐 Authenticator Setup ---
+# --- 🔐 Authenticator ---
 if 'authenticator' not in st.session_state:
     creds = {'usernames': {}}
     for row in st.session_state.users_df.itertuples(index=False):
@@ -54,7 +55,7 @@ if 'authenticator' not in st.session_state:
 
 authenticator = st.session_state.authenticator
 
-# --- 📤 Excel Export Function ---
+# --- 📤 Excel Function ---
 def to_excel(df):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -68,30 +69,39 @@ res = authenticator.login('main')
 if st.session_state["authentication_status"]:
     username = st.session_state["username"]
     user_info = st.session_state.users_df[st.session_state.users_df['username'] == username].iloc[0]
-    full_name = user_info['name']
-
-    # Force Password Change
-    if user_info['first_login']:
-        st.warning("⚠️ Security: Change your password.")
-        with st.form("pwd_form"):
-            new_p = st.text_input("New Password", type="password")
-            if st.form_submit_button("Update"):
-                st.session_state.users_df.loc[st.session_state.users_df['username'] == username, ['password', 'first_login']] = [new_p, False]
-                st.session_state.users_df.to_csv(users_file, index=False)
-                st.success("Updated! Please logout and login again."); st.stop()
-        st.stop()
-
-    st.sidebar.markdown(f'<div class="user-name-sidebar">👤 {full_name}</div>', unsafe_allow_html=True)
+    
+    st.sidebar.markdown(f'<div class="user-name-sidebar">👤 {user_info["name"]}</div>', unsafe_allow_html=True)
     authenticator.logout('Logout', 'sidebar')
 
-    # --- 📊 Dashboard Statistics (Admin/Manager) ---
+    # --- 📊 Dashboard Statistics (إرجاع الإحصائيات) ---
     if username in ['jsafaa', 'ahatim']:
         df = st.session_state.df_appeals
-        pending_obs = df[(df['Quality Decision'] == 'Pending') | (df['Direct Manager'] == 'Pending')]
-        
         c1, c2, c3 = st.columns(3)
-        with c1: st.markdown(f'<div class="stat-card" style="background-color:#e3f2fd; border-color:#1565c0;"><div class="stat-label" style="color:#1565c0;">Total Objections</div><div class="stat-value">{len(df)}</div></div>', unsafe_allow_html=True)
-        with c2: st.markdown(f'<div class="stat-card" style="background-color:#fff3e0; border-color:#ef6c00;"><div class="stat-label" style="color:#ef6c00;">Pending Review</div><div class="stat-value">{len(pending_obs)}</div></div>', unsafe_allow_html=True)
+        with c1: 
+            st.markdown(f'<div class="stat-card" style="background-color:#e3f2fd; border-color:#1565c0;"><div class="stat-label" style="color:#1565c0;">Total Objections</div><div class="stat-value">{len(df)}</div></div>', unsafe_allow_html=True)
+        with c2: 
+            p = len(df[(df['Quality Decision'] == 'Pending') | (df['Direct Manager'] == 'Pending')])
+            st.markdown(f'<div class="stat-card" style="background-color:#fff3e0; border-color:#ef6c00;"><div class="stat-label" style="color:#ef6c00;">Pending Review</div><div class="stat-value">{p}</div></div>', unsafe_allow_html=True)
         with c3:
             acc = len(df[(df['Quality Decision'] == 'Accepted') & (df['Direct Manager'] == 'Accepted')])
-            st.markdown(f'<div class="stat-card" style="background-color:#e8f5e9; border-color:#
+            st.markdown(f'<div class="stat-card" style="background-color:#e8f5e9; border-color:#2e7d32;"><div class="stat-label" style="color:#2e7d32;">Fully Accepted</div><div class="stat-value">{acc}</div></div>', unsafe_allow_html=True)
+
+    # --- Tabs ---
+    if username == 'jsafaa':
+        main_tab, admin_users_tab = st.tabs(["📊 Main System", "👥 Manage Staff"])
+    else:
+        main_tab = st.container()
+
+    with main_tab:
+        if username in ['jsafaa', 'ahatim']:
+            st.subheader("🛠 MANAGEMENT CONTROL PANEL")
+            # عرض الجدول مع الحالة النهائية
+            df_display = st.session_state.df_appeals.copy()
+            df_display['Status'] = df_display.apply(lambda r: "✅ Accepted" if r['Quality Decision'] == 'Accepted' and r['Direct Manager'] == 'Accepted' else ("❌ Rejected" if r['Quality Decision'] == 'Rejected' and r['Direct Manager'] == 'Rejected' else "⏳ Processing"), axis=1)
+            st.dataframe(df_display, use_container_width=True)
+
+            with st.expander("Update Decision"):
+                if not st.session_state.df_appeals.empty:
+                    idx = st.number_input("Row Index", 0, len(st.session_state.df_appeals)-1, 0)
+                    col1, col2 = st.columns(2)
+                    with col1:
