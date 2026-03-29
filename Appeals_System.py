@@ -51,10 +51,11 @@ def get_users_df():
 users_df = get_users_df()
 df_appeals = get_all_data()
 
-# --- Authenticator Setup ---
+# --- Authenticator Setup (High Speed Iteration) ---
 credentials = {'usernames': {}}
-for _, row in users_df.iterrows():
-    credentials['usernames'][str(row['username'])] = {'name': str(row['name']), 'password': str(row['password']), 'role': str(row['role'])}
+# تم الاستغناء عن iterrows البطيئة واستبدالها بـ itertuples السريعة جداً
+for row in users_df.itertuples(index=False):
+    credentials['usernames'][str(row.username)] = {'name': str(row.name), 'password': str(row.password), 'role': str(row.role)}
 
 # حل مشكلة الـ Login والـ Cookies
 authenticator = stauth.Authenticate(credentials, 'nmc_objections_cookie', 'auth_key_123', cookie_expiry_days=30)
