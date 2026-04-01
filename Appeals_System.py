@@ -29,7 +29,7 @@ users_file = "users_list.csv"
 def get_all_data():
     if 'main_df' not in st.session_state:
         if not os.path.exists(appeals_file):
-            pd.DataFrame(columns=["Employee", "Date", "Ticket Number", "Tab", "KPI", "Details", "Quality Decision", "Direct Manager", "Objection Issue Date"]).to_csv(appeals_file, index=False)
+            pd.DataFrame(columns=["Employee", "Date", "Ticket Number", "Tab", "Details", "Quality Decision", "Direct Manager", "Objection Issue Date"]).to_csv(appeals_file, index=False)
         st.session_state.main_df = pd.read_csv(appeals_file)
     return st.session_state.main_df
 
@@ -41,172 +41,15 @@ def get_users_df():
             for u in initial_users:
                 p = 'admin123' if u == 'jsafaa' else ('manager123' if u == 'ahatim' else '123')
                 role = 'Head Of Section' if u == 'ahatim' else ('Quality Engineer' if u == 'jsafaa' else 'Employee')
-                # إضافة حالة must_reset لجميع المستخدمين الافتراضيين
-                user_data.append({"username": u, "password": p, "name": u.upper(), "role": role, "must_reset": True})
+                user_data.append({"username": u, "password": p, "name": u.upper(), "role": role})
             pd.DataFrame(user_data).to_csv(users_file, index=False)
-        
-        temp_df = pd.read_csv(users_file)
-        # التأكد من وجود عمود must_reset في الملف إذا كان قديماً
-        if "must_reset" not in temp_df.columns:
-            temp_df["must_reset"] = False
-            temp_df.to_csv(users_file, index=False)
-        st.session_state.u_df = temp_df
+        st.session_state.u_df = pd.read_csv(users_file)
     return st.session_state.u_df
 
 users_df = get_users_df()
 df_appeals = get_all_data()
 
-# --- Authenticator Setup ---
+# --- Authenticator Setup (تم التعديل لضمان قراءة البيانات دائماً) ---
 credentials = {'usernames': {}}
 for _, row in users_df.iterrows():
-    credentials['usernames'][row['username']] = {'name': f"{row['name']} ({row['role']})", 'password': str(row['password'])}
-
-if 'auth_obj' not in st.session_state:
-    st.session_state.auth_obj = stauth.Authenticate(credentials, 'nmc_cookie', 'nmc_auth_key', cookie_expiry_days=30)
-
-authenticator = st.session_state.auth_obj
-
-# --- App Interface ---
-st.markdown('<div class="main-title">🛰️ NMC OBJECTIONS SYSTEM</div><hr>', unsafe_allow_html=True)
-
-try:
-    authenticator.login()
-except:
-    try: authenticator.login('main')
-    except: authenticator.login('Login', 'main')
-
-if st.session_state.get("authentication_status"):
-    username = st.session_state.get("username")
-    
-    # التحقق من حالة إجبار تغيير كلمة المرور
-    user_info = users_df[users_df['username'] == username].iloc[0]
-    
-    if user_info['must_reset']:
-        st.warning("⚠️ Security Action Required: You must change your password before proceeding.")
-        with st.form("force_reset_form"):
-            new_pwd = st.text_input("New Password", type="password")
-            conf_pwd = st.text_input("Confirm New Password", type="password")
-            if st.form_submit_button("Update Password"):
-                if new_pwd and new_pwd == conf_pwd:
-                    # تحديث في الداتا فريم وفي ملف CSV
-                    users_df.loc[users_df['username'] == username, 'password'] = new_pwd
-                    users_df.loc[users_df['username'] == username, 'must_reset'] = False
-                    users_df.to_csv(users_file, index=False)
-                    st.session_state.pop('u_df') # لتحديث البيانات في الجلسة القادمة
-                    st.success("Password updated successfully! Please login again.")
-                    # تسجيل خروج لإجبار النظام على تحديث الصلاحيات
-                    authenticator.logout('Logout', 'sidebar')
-                    st.rerun()
-                else:
-                    st.error("Passwords do not match or empty!")
-        st.stop() # إيقاف بقية الكود عن التنفيذ حتى يغير الباسوورد
-
-    # --- بقية البرنامج الأصلي كما هو بدون تغيير ---
-    if username in credentials['usernames']:
-        display_name = credentials['usernames'][username]['name']
-        st.sidebar.markdown(f'<div class="user-name-sidebar">👤 {display_name}</div>', unsafe_allow_html=True)
-    
-    authenticator.logout('Logout', 'sidebar')
-    
-    if "Objection Issue Date" not in df_appeals.columns:
-        df_appeals["Objection Issue Date"] = ""
-        df_appeals.to_csv(appeals_file, index=False)
-
-    if "KPI" not in df_appeals.columns:
-        df_appeals["KPI"] = ""
-        df_appeals.to_csv(appeals_file, index=False)
-
-    if username == 'jsafaa':
-        main_tab, admin_users_tab = st.tabs(["📊 Main System", "👥 Manage Staff"])
-    else:
-        main_tab = st.container()
-
-    with main_tab:
-        if username in ['jsafaa', 'ahatim']:
-            st.subheader("🛠 MANAGEMENT CONTROL PANEL")
-            st.dataframe(df_appeals, use_container_width=True)
-            with st.expander("Update Decisions"):
-                if not df_appeals.empty:
-                    row_idx = st.number_input("Select Row ID", 0, len(df_appeals)-1, 0)
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        q_dec = st.text_area("Quality Decision", value=df_appeals.loc[row_idx, "Quality Decision"], disabled=(username == 'ahatim'))
-                    with col2:
-                        m_dec = st.text_area("Head Of Section Decision", value=df_appeals.loc[row_idx, "Direct Manager"], disabled=(username == 'jsafaa'))
-                    if st.button("Save Changes"):
-                        df_appeals.loc[row_idx, "Quality Decision"] = q_dec
-                        df_appeals.loc[row_idx, "Direct Manager"] = m_dec
-                        df_appeals.to_csv(appeals_file, index=False)
-                        st.session_state.pop('main_df')
-                        st.success("Updated!")
-                        st.rerun()
-        else:
-            t_sub, t_hist = st.tabs(["📤 Submit", "📜 History"])
-            with t_sub:
-                with st.form("obj_form", clear_on_submit=True):
-                    f_date = st.date_input("Date", datetime.now()); f_ticket = st.text_input("Ticket Number")
-                    f_tab = st.selectbox("Tab", ["SWITCH STATE", "Baghdad Rings", "MPLS", "EARTHLINK SERVICES", "Alwatani-Services", "BRIDGES", "Wireless", "IRQNBN", "ITPC", "MERTO", "NAS's", "Server Room", "Power", "AL-Watani Power"])
-                    
-                    f_kpi = st.selectbox("KPI", [
-                        "High MTTD", "Shift Delay", "Done Delay", "Done Delay Response", 
-                        "Delay High Impact", "Closing Issue", "Reduce Number Of Incident", 
-                        "Ticket Not Add", "Wrong Action", "Delay In Q Limit", 
-                        "High ASR Utilization", "Zabbix Not Match", "Wrong Forward", 
-                        "Wrong Action In Q Manager", "FMS", "Delay FMS", 
-                        "Number Of Delay FMS", "No Task"
-                    ])
-                    
-                    f_details = st.text_area("Details")
-                    if st.form_submit_button("Submit"):
-                        baghdad_now = datetime.utcnow() + timedelta(hours=3)
-                        if baghdad_now.day >= 18 and f_date.day <= 15:
-                            st.error("❌ Error: Exceeded objection period for 1st half.")
-                        elif not f_ticket or not f_details: st.error("❌ Fill all fields!")
-                        else:
-                            submission_time = baghdad_now.strftime("%Y-%m-%d %H:%M:%S")
-                            new_row = {"Employee": st.session_state.get("name"), "Date": str(f_date), "Ticket Number": f_ticket, "Tab": f_tab, "KPI": f_kpi, "Details": f_details, "Quality Decision": "Pending", "Direct Manager": "Pending", "Objection Issue Date": submission_time}
-                            updated_df = pd.concat([df_appeals, pd.DataFrame([new_row])], ignore_index=True)
-                            updated_df.to_csv(appeals_file, index=False)
-                            st.session_state.main_df = updated_df
-                            st.success(f"Submitted at {submission_time}!"); st.balloons()
-            with t_hist: 
-                st.dataframe(df_appeals[df_appeals['Employee'] == st.session_state.get("name")], use_container_width=True)
-
-    if username == 'jsafaa':
-        with admin_users_tab:
-            st.subheader("👥 Employee Directory Management")
-            with st.expander("➕ Add New Employee"):
-                new_u = st.text_input("New Username").lower().strip()
-                new_n = st.text_input("Full Name (Display)")
-                if st.button("Add to System"):
-                    if new_u and new_u not in users_df['username'].values:
-                        # إضافة الموظف مع تفعيل إجبار تغيير الباسوورد must_reset=True
-                        new_user_row = {"username": new_u, "password": "123", "name": new_n, "role": "Employee", "must_reset": True}
-                        users_df = pd.concat([users_df, pd.DataFrame([new_user_row])], ignore_index=True)
-                        users_df.to_csv(users_file, index=False)
-                        st.session_state.pop('u_df')
-                        st.success(f"User {new_u} added! They must change password on first login.")
-                        st.rerun()
-
-            with st.expander("🔑 Change Employee Password"):
-                target_user = st.selectbox("Select User", users_df['username'].values)
-                new_pass = st.text_input("New Password", type="password")
-                if st.button("Update Password"):
-                    users_df.loc[users_df['username'] == target_user, 'password'] = new_pass
-                    # عند تصفير الباسوورد من قبل الأدمن، يتم تفعيل إجبار التغيير
-                    users_df.loc[users_df['username'] == target_user, 'must_reset'] = True
-                    users_df.to_csv(users_file, index=False)
-                    st.session_state.pop('u_df')
-                    st.success(f"Password for {target_user} updated and reset required!")
-
-            with st.expander("🗑️ Remove Employee"):
-                del_user = st.selectbox("Select User to Remove", [u for u in users_df['username'].values if u not in ['jsafaa', 'ahatim']])
-                if st.button("Confirm Delete"):
-                    users_df = users_df[users_df['username'] != del_user]
-                    users_df.to_csv(users_file, index=False)
-                    st.session_state.pop('u_df')
-                    st.warning(f"User {del_user} removed.")
-                    st.rerun()
-
-elif st.session_state.get("authentication_status") == False: st.error("Wrong info")
-else: st.info("Please Login")
+    credentials['usernames'][row['username']] = {'name': f"{row['name']} ({row['role']})", 'password': str(
