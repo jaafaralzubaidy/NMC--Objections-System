@@ -4,10 +4,10 @@ import streamlit_authenticator as stauth
 import os
 from datetime import datetime, timedelta
 
-# --- 🚀 Page Configuration ---
+# --- 🚀 تحسين استجابة الصفحة وتثبيت التنسيق ---
 st.set_page_config(page_title="NMC Objections Portal", layout="wide")
 
-# --- Custom CSS for English Layout & Notifications ---
+# --- CSS لمعالجة مشكلة اللون الأبيض وضمان وضوح الكتابة ---
 st.markdown("""
     <style>
         .main-title { font-size:40px !important; color: #1E3A8A; text-align: center; font-weight: bold; }
@@ -18,29 +18,6 @@ st.markdown("""
         }
         .stMarkdown h3 { color: #1E3A8A !important; }
         .user-name-sidebar { color: #4CAF50; font-weight: bold; font-size: 18px; margin-bottom: 10px; }
-        
-        /* Notification Banner Design */
-        .notification-banner {
-            padding: 15px;
-            background-color: #ffeeb2;
-            border-left: 6px solid #ffcc00;
-            border-radius: 5px;
-            color: #856404;
-            font-weight: bold;
-            margin-bottom: 20px;
-            font-size: 18px;
-        }
-
-        /* 🎨 Custom Stats Cards Styling */
-        .stat-card {
-            padding: 20px;
-            border-radius: 12px;
-            text-align: center;
-            box-shadow: 2px 2px 10px rgba(0,0,0,0.1);
-            margin-bottom: 10px;
-        }
-        .stat-label { font-size: 16px; font-weight: bold; margin-bottom: 5px; }
-        .stat-value { font-size: 32px; font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -48,7 +25,7 @@ st.markdown("""
 appeals_file = "database_appeals.csv"
 users_file = "users_list.csv"
 
-# --- 🛠️ Data Loading Functions ---
+# --- 🛠️ دوال قراءة البيانات الذكية ---
 def get_all_data():
     if 'main_df' not in st.session_state:
         if not os.path.exists(appeals_file):
@@ -72,7 +49,7 @@ def get_users_df():
 users_df = get_users_df()
 df_appeals = get_all_data()
 
-# --- Authenticator Setup ---
+# --- Authenticator Setup (تم التعديل لضمان قراءة البيانات دائماً) ---
 credentials = {'usernames': {}}
 for _, row in users_df.iterrows():
     credentials['usernames'][row['username']] = {'name': f"{row['name']} ({row['role']})", 'password': str(row['password'])}
@@ -82,7 +59,7 @@ if 'auth_obj' not in st.session_state:
 
 authenticator = st.session_state.auth_obj
 
-# --- App Interface (English) ---
+# --- App Interface ---
 st.markdown('<div class="main-title">🛰️ NMC OBJECTIONS SYSTEM</div><hr>', unsafe_allow_html=True)
 
 try:
@@ -94,6 +71,7 @@ except:
 if st.session_state.get("authentication_status"):
     username = st.session_state.get("username")
     
+    # --- عرض اسم الموظف صاحب الحساب في السايدبار ---
     if username in credentials['usernames']:
         display_name = credentials['usernames'][username]['name']
         st.sidebar.markdown(f'<div class="user-name-sidebar">👤 {display_name}</div>', unsafe_allow_html=True)
@@ -104,36 +82,11 @@ if st.session_state.get("authentication_status"):
         df_appeals["Objection Issue Date"] = ""
         df_appeals.to_csv(appeals_file, index=False)
 
-    # --- 📊 Statistics & Notifications (For Jassim & Hatim Only) ---
-    if username in ['jsafaa', 'ahatim']:
-        pending_obs = df_appeals[(df_appeals['Quality Decision'] == 'Pending') | (df_appeals['Direct Manager'] == 'Pending')]
-        
-        if not pending_obs.empty:
-            names_str = ", ".join(pending_obs['Employee'].unique())
-            st.markdown(f'<div class="notification-banner">🔔 ALERT: Pending objections from: {names_str}</div>', unsafe_allow_html=True)
+    # إضافة عمود الـ KPI في حال لم يكن موجوداً لضمان عدم حدوث خطأ مع الملفات السابقة
+    if "KPI" not in df_appeals.columns:
+        df_appeals["KPI"] = ""
+        df_appeals.to_csv(appeals_file, index=False)
 
-        # 📈 Colored Statistics Overview
-        st.subheader("📈 System Statistics Overview")
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.markdown(f'''<div class="stat-card" style="background-color: #e3f2fd; border-left: 6px solid #1565c0;">
-                <div class="stat-label" style="color: #1565c0;">Total Objections</div>
-                <div class="stat-value" style="color: #0d47a1;">{len(df_appeals)}</div>
-            </div>''', unsafe_allow_html=True)
-        with c2:
-            st.markdown(f'''<div class="stat-card" style="background-color: #fff3e0; border-left: 6px solid #ef6c00;">
-                <div class="stat-label" style="color: #ef6c00;">Pending Review</div>
-                <div class="stat-value" style="color: #e65100;">{len(pending_obs)}</div>
-            </div>''', unsafe_allow_html=True)
-        with c3:
-            acc_count = len(df_appeals[(df_appeals['Quality Decision'] == 'Accepted') & (df_appeals['Direct Manager'] == 'Accepted')])
-            st.markdown(f'''<div class="stat-card" style="background-color: #e8f5e9; border-left: 6px solid #2e7d32;">
-                <div class="stat-label" style="color: #2e7d32;">Fully Accepted</div>
-                <div class="stat-value" style="color: #1b5e20;">{acc_count}</div>
-            </div>''', unsafe_allow_html=True)
-        st.divider()
-
-    # Tab System
     if username == 'jsafaa':
         main_tab, admin_users_tab = st.tabs(["📊 Main System", "👥 Manage Staff"])
     else:
@@ -151,36 +104,56 @@ if st.session_state.get("authentication_status"):
                         q_dec = st.text_area("Quality Decision", value=df_appeals.loc[row_idx, "Quality Decision"], disabled=(username == 'ahatim'))
                     with col2:
                         m_dec = st.text_area("Head Of Section Decision", value=df_appeals.loc[row_idx, "Direct Manager"], disabled=(username == 'jsafaa'))
-                    
                     if st.button("Save Changes"):
                         df_appeals.loc[row_idx, "Quality Decision"] = q_dec
                         df_appeals.loc[row_idx, "Direct Manager"] = m_dec
                         df_appeals.to_csv(appeals_file, index=False)
-                        if 'main_df' in st.session_state: st.session_state.pop('main_df')
-                        st.success("Changes Saved Successfully!"); st.rerun()
+                        st.session_state.pop('main_df')
+                        st.success("Updated!")
+                        st.rerun()
         else:
-            t_sub, t_hist = st.tabs(["📤 Submit Objection", "📜 History"])
+            t_sub, t_hist = st.tabs(["📤 Submit", "📜 History"])
             with t_sub:
                 with st.form("obj_form", clear_on_submit=True):
-                    f_date = st.date_input("Incident Date", datetime.now())
-                    f_ticket = st.text_input("Ticket Number")
-                    f_tab = st.selectbox("Department", ["SWITCH STATE", "Baghdad Rings", "MPLS", "EARTHLINK SERVICES", "Alwatani-Services", "BRIDGES", "Wireless", "IRQNBN", "ITPC", "MERTO", "NAS's", "Server Room", "Power", "AL-Watani Power"])
-                    f_details = st.text_area("Objection Details")
+                    f_date = st.date_input("Date", datetime.now()); f_ticket = st.text_input("Ticket Number")
+                    f_tab = st.selectbox("Tab", ["SWITCH STATE", "Baghdad Rings", "MPLS", "EARTHLINK SERVICES", "Alwatani-Services", "BRIDGES", "Wireless", "IRQNBN", "ITPC", "MERTO", "NAS's", "Server Room", "Power", "AL-Watani Power"])
+                    
+                    # --- الحقل الجديد المضاف ---
+                    f_kpi = st.selectbox("KPI", [
+                        "High MTTD", "Shift Delay", "Done Delay", "Done Delay Response", 
+                        "Delay High Impact", "Closing Issue", "Reduce Number Of Incident", 
+                        "Ticket Not Add", "Wrong Action", "Delay In Q Limit", 
+                        "High ASR Utilization", "Zabbix Not Match", "Wrong Forward", 
+                        "Wrong Action In Q Manager", "FMS", "Delay FMS", 
+                        "Number Of Delay FMS", "No Task"
+                    ])
+                    
+                    f_details = st.text_area("Details")
                     if st.form_submit_button("Submit"):
                         baghdad_now = datetime.utcnow() + timedelta(hours=3)
                         if baghdad_now.day >= 18 and f_date.day <= 15:
-                            st.error("❌ Access Denied: Deadline passed.")
+                            st.error("❌ Error: Exceeded objection period for 1st half.")
                         elif not f_ticket or not f_details: st.error("❌ Fill all fields!")
                         else:
                             submission_time = baghdad_now.strftime("%Y-%m-%d %H:%M:%S")
-                            new_row = {"Employee": st.session_state.get("name"), "Date": str(f_date), "Ticket Number": f_ticket, "Tab": f_tab, "Details": f_details, "Quality Decision": "Pending", "Direct Manager": "Pending", "Objection Issue Date": submission_time}
+                            # تم إضافة f_kpi لقاموس البيانات هنا
+                            new_row = {
+                                "Employee": st.session_state.get("name"), 
+                                "Date": str(f_date), 
+                                "Ticket Number": f_ticket, 
+                                "Tab": f_tab, 
+                                "KPI": f_kpi, 
+                                "Details": f_details, 
+                                "Quality Decision": "Pending", 
+                                "Direct Manager": "Pending", 
+                                "Objection Issue Date": submission_time
+                            }
                             updated_df = pd.concat([df_appeals, pd.DataFrame([new_row])], ignore_index=True)
                             updated_df.to_csv(appeals_file, index=False)
                             st.session_state.main_df = updated_df
                             st.success(f"Submitted at {submission_time}!"); st.balloons()
             with t_hist: 
-                user_history = df_appeals[df_appeals['Employee'] == st.session_state.get("name")]
-                st.dataframe(user_history, use_container_width=True)
+                st.dataframe(df_appeals[df_appeals['Employee'] == st.session_state.get("name")], use_container_width=True)
 
     if username == 'jsafaa':
         with admin_users_tab:
@@ -188,27 +161,32 @@ if st.session_state.get("authentication_status"):
             with st.expander("➕ Add New Employee"):
                 new_u = st.text_input("New Username").lower().strip()
                 new_n = st.text_input("Full Name (Display)")
-                if st.button("Register User"):
+                if st.button("Add to System"):
                     if new_u and new_u not in users_df['username'].values:
                         new_user_row = {"username": new_u, "password": "123", "name": new_n, "role": "Employee"}
                         users_df = pd.concat([users_df, pd.DataFrame([new_user_row])], ignore_index=True)
                         users_df.to_csv(users_file, index=False)
-                        st.session_state.pop('u_df'); st.success("User registered!"); st.rerun()
+                        st.session_state.pop('u_df')
+                        st.success(f"User {new_u} added!")
+                        st.rerun()
 
-            with st.expander("🔑 Reset Password"):
-                target_user = st.selectbox("Select User Account", users_df['username'].values)
+            with st.expander("🔑 Change Employee Password"):
+                target_user = st.selectbox("Select User", users_df['username'].values)
                 new_pass = st.text_input("New Password", type="password")
-                if st.button("Confirm Reset"):
+                if st.button("Update Password"):
                     users_df.loc[users_df['username'] == target_user, 'password'] = new_pass
                     users_df.to_csv(users_file, index=False)
-                    st.session_state.pop('u_df'); st.success(f"Updated {target_user}!")
+                    st.session_state.pop('u_df')
+                    st.success(f"Password for {target_user} updated!")
 
-            with st.expander("🗑️ Delete Account"):
-                del_user = st.selectbox("User to Remove", [u for u in users_df['username'].values if u not in ['jsafaa', 'ahatim']])
-                if st.button("Final Delete"):
+            with st.expander("🗑️ Remove Employee"):
+                del_user = st.selectbox("Select User to Remove", [u for u in users_df['username'].values if u not in ['jsafaa', 'ahatim']])
+                if st.button("Confirm Delete"):
                     users_df = users_df[users_df['username'] != del_user]
                     users_df.to_csv(users_file, index=False)
-                    st.session_state.pop('u_df'); st.warning(f"Deleted {del_user}!"); st.rerun()
+                    st.session_state.pop('u_df')
+                    st.warning(f"User {del_user} removed.")
+                    st.rerun()
 
-elif st.session_state.get("authentication_status") == False: st.error("Incorrect Username or Password")
-else: st.info("Authentication Required.")
+elif st.session_state.get("authentication_status") == False: st.error("Wrong info")
+else: st.info("Please Login")
