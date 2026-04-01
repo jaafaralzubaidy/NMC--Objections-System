@@ -29,7 +29,7 @@ users_file = "users_list.csv"
 def get_all_data():
     if 'main_df' not in st.session_state:
         if not os.path.exists(appeals_file):
-            pd.DataFrame(columns=["Employee", "Date", "Ticket Number", "Tab", "Details", "Quality Decision", "Direct Manager", "Objection Issue Date"]).to_csv(appeals_file, index=False)
+            pd.DataFrame(columns=["Employee", "Date", "Ticket Number", "Tab", "KPI", "Details", "Quality Decision", "Direct Manager", "Objection Issue Date"]).to_csv(appeals_file, index=False)
         st.session_state.main_df = pd.read_csv(appeals_file)
     return st.session_state.main_df
 
@@ -41,15 +41,22 @@ def get_users_df():
             for u in initial_users:
                 p = 'admin123' if u == 'jsafaa' else ('manager123' if u == 'ahatim' else '123')
                 role = 'Head Of Section' if u == 'ahatim' else ('Quality Engineer' if u == 'jsafaa' else 'Employee')
-                user_data.append({"username": u, "password": p, "name": u.upper(), "role": role})
+                # إضافة حالة must_reset لجميع المستخدمين الافتراضيين
+                user_data.append({"username": u, "password": p, "name": u.upper(), "role": role, "must_reset": True})
             pd.DataFrame(user_data).to_csv(users_file, index=False)
-        st.session_state.u_df = pd.read_csv(users_file)
+        
+        temp_df = pd.read_csv(users_file)
+        # التأكد من وجود عمود must_reset في الملف إذا كان قديماً
+        if "must_reset" not in temp_df.columns:
+            temp_df["must_reset"] = False
+            temp_df.to_csv(users_file, index=False)
+        st.session_state.u_df = temp_df
     return st.session_state.u_df
 
 users_df = get_users_df()
 df_appeals = get_all_data()
 
-# --- Authenticator Setup (تم التعديل لضمان قراءة البيانات دائماً) ---
+# --- Authenticator Setup ---
 credentials = {'usernames': {}}
 for _, row in users_df.iterrows():
     credentials['usernames'][row['username']] = {'name': f"{row['name']} ({row['role']})", 'password': str(row['password'])}
@@ -71,7 +78,30 @@ except:
 if st.session_state.get("authentication_status"):
     username = st.session_state.get("username")
     
-    # --- عرض اسم الموظف صاحب الحساب في السايدبار ---
+    # التحقق من حالة إجبار تغيير كلمة المرور
+    user_info = users_df[users_df['username'] == username].iloc[0]
+    
+    if user_info['must_reset']:
+        st.warning("⚠️ Security Action Required: You must change your password before proceeding.")
+        with st.form("force_reset_form"):
+            new_pwd = st.text_input("New Password", type="password")
+            conf_pwd = st.text_input("Confirm New Password", type="password")
+            if st.form_submit_button("Update Password"):
+                if new_pwd and new_pwd == conf_pwd:
+                    # تحديث في الداتا فريم وفي ملف CSV
+                    users_df.loc[users_df['username'] == username, 'password'] = new_pwd
+                    users_df.loc[users_df['username'] == username, 'must_reset'] = False
+                    users_df.to_csv(users_file, index=False)
+                    st.session_state.pop('u_df') # لتحديث البيانات في الجلسة القادمة
+                    st.success("Password updated successfully! Please login again.")
+                    # تسجيل خروج لإجبار النظام على تحديث الصلاحيات
+                    authenticator.logout('Logout', 'sidebar')
+                    st.rerun()
+                else:
+                    st.error("Passwords do not match or empty!")
+        st.stop() # إيقاف بقية الكود عن التنفيذ حتى يغير الباسوورد
+
+    # --- بقية البرنامج الأصلي كما هو بدون تغيير ---
     if username in credentials['usernames']:
         display_name = credentials['usernames'][username]['name']
         st.sidebar.markdown(f'<div class="user-name-sidebar">👤 {display_name}</div>', unsafe_allow_html=True)
@@ -82,7 +112,6 @@ if st.session_state.get("authentication_status"):
         df_appeals["Objection Issue Date"] = ""
         df_appeals.to_csv(appeals_file, index=False)
 
-    # إضافة عمود الـ KPI في حال لم يكن موجوداً لضمان عدم حدوث خطأ مع الملفات السابقة
     if "KPI" not in df_appeals.columns:
         df_appeals["KPI"] = ""
         df_appeals.to_csv(appeals_file, index=False)
@@ -118,7 +147,6 @@ if st.session_state.get("authentication_status"):
                     f_date = st.date_input("Date", datetime.now()); f_ticket = st.text_input("Ticket Number")
                     f_tab = st.selectbox("Tab", ["SWITCH STATE", "Baghdad Rings", "MPLS", "EARTHLINK SERVICES", "Alwatani-Services", "BRIDGES", "Wireless", "IRQNBN", "ITPC", "MERTO", "NAS's", "Server Room", "Power", "AL-Watani Power"])
                     
-                    # --- الحقل الجديد المضاف ---
                     f_kpi = st.selectbox("KPI", [
                         "High MTTD", "Shift Delay", "Done Delay", "Done Delay Response", 
                         "Delay High Impact", "Closing Issue", "Reduce Number Of Incident", 
@@ -136,18 +164,7 @@ if st.session_state.get("authentication_status"):
                         elif not f_ticket or not f_details: st.error("❌ Fill all fields!")
                         else:
                             submission_time = baghdad_now.strftime("%Y-%m-%d %H:%M:%S")
-                            # تم إضافة f_kpi لقاموس البيانات هنا
-                            new_row = {
-                                "Employee": st.session_state.get("name"), 
-                                "Date": str(f_date), 
-                                "Ticket Number": f_ticket, 
-                                "Tab": f_tab, 
-                                "KPI": f_kpi, 
-                                "Details": f_details, 
-                                "Quality Decision": "Pending", 
-                                "Direct Manager": "Pending", 
-                                "Objection Issue Date": submission_time
-                            }
+                            new_row = {"Employee": st.session_state.get("name"), "Date": str(f_date), "Ticket Number": f_ticket, "Tab": f_tab, "KPI": f_kpi, "Details": f_details, "Quality Decision": "Pending", "Direct Manager": "Pending", "Objection Issue Date": submission_time}
                             updated_df = pd.concat([df_appeals, pd.DataFrame([new_row])], ignore_index=True)
                             updated_df.to_csv(appeals_file, index=False)
                             st.session_state.main_df = updated_df
@@ -163,11 +180,12 @@ if st.session_state.get("authentication_status"):
                 new_n = st.text_input("Full Name (Display)")
                 if st.button("Add to System"):
                     if new_u and new_u not in users_df['username'].values:
-                        new_user_row = {"username": new_u, "password": "123", "name": new_n, "role": "Employee"}
+                        # إضافة الموظف مع تفعيل إجبار تغيير الباسوورد must_reset=True
+                        new_user_row = {"username": new_u, "password": "123", "name": new_n, "role": "Employee", "must_reset": True}
                         users_df = pd.concat([users_df, pd.DataFrame([new_user_row])], ignore_index=True)
                         users_df.to_csv(users_file, index=False)
                         st.session_state.pop('u_df')
-                        st.success(f"User {new_u} added!")
+                        st.success(f"User {new_u} added! They must change password on first login.")
                         st.rerun()
 
             with st.expander("🔑 Change Employee Password"):
@@ -175,9 +193,11 @@ if st.session_state.get("authentication_status"):
                 new_pass = st.text_input("New Password", type="password")
                 if st.button("Update Password"):
                     users_df.loc[users_df['username'] == target_user, 'password'] = new_pass
+                    # عند تصفير الباسوورد من قبل الأدمن، يتم تفعيل إجبار التغيير
+                    users_df.loc[users_df['username'] == target_user, 'must_reset'] = True
                     users_df.to_csv(users_file, index=False)
                     st.session_state.pop('u_df')
-                    st.success(f"Password for {target_user} updated!")
+                    st.success(f"Password for {target_user} updated and reset required!")
 
             with st.expander("🗑️ Remove Employee"):
                 del_user = st.selectbox("Select User to Remove", [u for u in users_df['username'].values if u not in ['jsafaa', 'ahatim']])
