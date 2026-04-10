@@ -55,12 +55,7 @@ def get_users_df():
         
         if 'farook' in df['username'].values:
             df.loc[df['username'] == 'farook', 'role'] = 'Team Leader'
-            df.to_csv(users_file, index=False)
-        else:
-            new_user = {"username": "farook", "password": "manager123", "name": "FAROOK", "role": "Team Leader", "Force_Change": True}
-            df = pd.concat([df, pd.DataFrame([new_user])], ignore_index=True)
-            df.to_csv(users_file, index=False)
-
+        
         if "Force_Change" not in df.columns:
             df["Force_Change"] = df["password"].astype(str).isin(['123', 'admin123', 'manager123'])
             df.to_csv(users_file, index=False)
@@ -92,6 +87,7 @@ except:
 if st.session_state.get("authentication_status"):
     username = st.session_state.get("username")
     user_row = users_df[users_df['username'] == username].iloc[0]
+    # ميزة جبر الموظف على التغيير (موجودة هنا)
     needs_change = str(user_row.get('Force_Change', 'False')).lower() == 'true'
     
     if needs_change:
@@ -184,7 +180,9 @@ if st.session_state.get("authentication_status"):
 
     if username in ['jsafaa', 'farook']:
         with admin_users_tab:
-            st.subheader("👥 Employee Directory Management")
+            st.subheader("👥 Staff Directory & Password Control")
+            
+            # 1. إضافة موظف
             with st.expander("➕ Add New Employee"):
                 new_u = st.text_input("New Username").lower().strip()
                 new_n = st.text_input("Full Name (Display)")
@@ -194,19 +192,19 @@ if st.session_state.get("authentication_status"):
                         users_df = pd.concat([users_df, pd.DataFrame([new_user_row])], ignore_index=True)
                         users_df.to_csv(users_file, index=False)
                         st.session_state.pop('u_df')
-                        st.success(f"User {new_u} added!")
+                        st.success(f"User {new_u} added with default password '123'")
                         st.rerun()
 
-            with st.expander("🗑️ Remove Employee"):
-                del_user = st.selectbox("Select User to Remove", [u for u in users_df['username'].values if u not in ['jsafaa', 'ahatim', 'farook']])
-                if st.button("Confirm Delete"):
-                    users_df = users_df[users_df['username'] != del_user]
+            # 2. ميزة الريسيت باسوورد (تمت الإضافة هنا)
+            with st.expander("🔄 Reset Employee Password"):
+                st.info("Resets password to '123' and forces the user to change it on next login.")
+                reset_user = st.selectbox("Select User to Reset", users_df['username'].values)
+                if st.button("Confirm Password Reset"):
+                    users_df.loc[users_df['username'] == reset_user, 'password'] = "123"
+                    users_df.loc[users_df['username'] == reset_user, 'Force_Change'] = True
                     users_df.to_csv(users_file, index=False)
                     st.session_state.pop('u_df')
-                    st.warning(f"User {del_user} removed.")
-                    st.rerun()
+                    st.success(f"✅ Password for '{reset_user}' has been reset to '123'")
 
-elif st.session_state.get("authentication_status") == False:
-    st.error("Username/password is incorrect")
-else:
-    st.info("Please enter your username and password")
+            # 3. مسح موظف
+            with st.expander("🗑️ Remove Employee
