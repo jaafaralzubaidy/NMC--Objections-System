@@ -35,16 +35,24 @@ def get_all_data():
 
 def get_users_df():
     if 'u_df' not in st.session_state:
+        # إنشاء الملف إذا لم يكن موجوداً
         if not os.path.exists(users_file):
-            initial_users = ["ahatim", "mkhalid", "hfalah", "hmuayyad", "alimad", "rriyad", "hjabbar", "hmuhammada", "arubayi", "aadil", "ayasin", "fahmad", "hakali", "musadiq", "itsattar", "amusadaq", "aanbari", "afahad", "rthair", "omsubhi", "rwahab", "mlayth", "yasadi", "yriyad", "abfaysal", "hasanhadi", "hamuhsin", "aybasheer", "marmahmud", "abisameer", "jsafaa", "muhahamid", "murqasim", "moayad", "dadnan", "abiabbas", "qriyad", "tmustafa", "sbahnan", "admuhammad", "amohammad", "shzuhayr"]
+            initial_users = ["ahatim", "mkhalid", "hfalah", "hmuayyad", "alimad", "rriyad", "hjabbar", "hmuhammada", "arubayi", "aadil", "ayasin", "fahmad", "hakali", "musadiq", "itsattar", "amusadaq", "aanbari", "afahad", "rthair", "omsubhi", "rwahab", "mlayth", "yasadi", "yriyad", "abfaysal", "hasanhadi", "hamuhsin", "aybasheer", "marmahmud", "abisameer", "jsafaa", "muhahamid", "murqasim", "moayad", "dadnan", "abiabbas", "qriyad", "tmustafa", "sbahnan", "admuhammad", "amohammad", "shzuhayr", "farook"]
             user_data = []
             for u in initial_users:
-                p = 'admin123' if u == 'jsafaa' else ('manager123' if u == 'ahatim' else '123')
-                role = 'Head Of Section' if u == 'ahatim' else ('Quality Engineer' if u == 'jsafaa' else 'Employee')
+                p = 'admin123' if u == 'jsafaa' else ('manager123' if u in ['ahatim', 'farook'] else '123')
+                role = 'Head Of Section' if u in ['ahatim', 'farook'] else ('Quality Engineer' if u == 'jsafaa' else 'Employee')
                 user_data.append({"username": u, "password": p, "name": u.upper(), "role": role, "Force_Change": True})
             pd.DataFrame(user_data).to_csv(users_file, index=False)
-            
+        
         df = pd.read_csv(users_file)
+        
+        # --- تحديث تلقائي: إضافة فاروق إذا كان الملف موجوداً مسبقاً ---
+        if 'farook' not in df['username'].values:
+            new_user = {"username": "farook", "password": "manager123", "name": "FAROOK", "role": "Head Of Section", "Force_Change": True}
+            df = pd.concat([df, pd.DataFrame([new_user])], ignore_index=True)
+            df.to_csv(users_file, index=False)
+
         if "Force_Change" not in df.columns:
             df["Force_Change"] = df["password"].astype(str).isin(['123', 'admin123', 'manager123'])
             df.to_csv(users_file, index=False)
@@ -76,11 +84,9 @@ except:
 if st.session_state.get("authentication_status"):
     username = st.session_state.get("username")
     
-    # جلب بيانات الموظف الحالي
     user_row = users_df[users_df['username'] == username].iloc[0]
     needs_change = str(user_row.get('Force_Change', 'False')).lower() == 'true'
     
-    # التحقق من شرط تغيير الباسوورد
     if needs_change:
         st.warning("⚠️ Security Alert: You must update your password to proceed.")
         with st.form("force_pass_change"):
@@ -103,14 +109,12 @@ if st.session_state.get("authentication_status"):
         authenticator.logout('Logout', 'sidebar')
         st.stop()
 
-    # --- عرض اسم المستخدم في السايدبار ---
     if username in credentials['usernames']:
         display_name = credentials['usernames'][username]['name']
         st.sidebar.markdown(f'<div class="user-name-sidebar">👤 {display_name}</div>', unsafe_allow_html=True)
     
     authenticator.logout('Logout', 'sidebar')
     
-    # تهيئة الأعمدة المفقودة في قاعدة البيانات
     if "Objection Issue Date" not in df_appeals.columns:
         df_appeals["Objection Issue Date"] = ""
         df_appeals.to_csv(appeals_file, index=False)
@@ -118,14 +122,15 @@ if st.session_state.get("authentication_status"):
         df_appeals["KPI"] = ""
         df_appeals.to_csv(appeals_file, index=False)
 
-    # --- إدارة التبويبات حسب الصلاحية ---
-    if username == 'jsafaa':
+    # --- إدارة التبويبات حسب الصلاحية (تم إضافة فاروق هنا) ---
+    if username in ['jsafaa', 'farook']:
         main_tab, admin_users_tab = st.tabs(["📊 Main System", "👥 Manage Staff"])
     else:
         main_tab = st.container()
 
     with main_tab:
-        if username in ['jsafaa', 'ahatim']:
+        # السماح لـ فاروق برؤية لوحة التحكم (نفس صلاحية ahatim)
+        if username in ['jsafaa', 'ahatim', 'farook']:
             st.subheader("🛠 MANAGEMENT CONTROL PANEL")
             st.dataframe(df_appeals, use_container_width=True)
             with st.expander("Update Decisions"):
@@ -133,7 +138,8 @@ if st.session_state.get("authentication_status"):
                     row_idx = st.number_input("Select Row ID", 0, len(df_appeals)-1, 0)
                     col1, col2 = st.columns(2)
                     with col1:
-                        q_dec = st.text_area("Quality Decision", value=df_appeals.loc[row_idx, "Quality Decision"], disabled=(username == 'ahatim'))
+                        # جعل التعديل متاحاً لفاروق (غير معطل)
+                        q_dec = st.text_area("Quality Decision", value=df_appeals.loc[row_idx, "Quality Decision"], disabled=(username in ['ahatim', 'farook']))
                     with col2:
                         m_dec = st.text_area("Head Of Section Decision", value=df_appeals.loc[row_idx, "Direct Manager"], disabled=(username == 'jsafaa'))
                     if st.button("Save Changes"):
@@ -147,74 +153,4 @@ if st.session_state.get("authentication_status"):
             t_sub, t_hist = st.tabs(["📤 Submit Objection", "📜 History"])
             with t_sub:
                 with st.form("obj_form", clear_on_submit=True):
-                    f_date = st.date_input("Date", datetime.now())
-                    f_ticket = st.text_input("Ticket Number")
-                    f_tab = st.selectbox("Tab", ["SWITCH STATE", "Baghdad Rings", "MPLS", "EARTHLINK SERVICES", "Alwatani-Services", "BRIDGES", "Wireless", "IRQNBN", "ITPC", "MERTO", "NAS's", "Server Room", "Power", "AL-Watani Power"])
-                    f_kpi = st.selectbox("KPI", ["High MTTD", "Shift Delay", "Done Delay", "Done Delay Response", "Delay High Impact", "Closing Issue", "Reduce Number Of Incident", "Ticket Not Add", "Wrong Action", "Delay In Q Limit", "High ASR Utilization", "Zabbix Not Match", "Wrong Forward", "Wrong Action In Q Manager", "FMS", "Delay FMS", "Number Of Delay FMS", "No Task"])
-                    f_details = st.text_area("Details")
-                    if st.form_submit_button("Submit"):
-                        baghdad_now = datetime.utcnow() + timedelta(hours=3)
-                        if baghdad_now.day >= 18 and f_date.day <= 15:
-                            st.error("❌ Error: Exceeded objection period for 1st half.")
-                        elif not f_ticket or not f_details:
-                            st.error("❌ Please fill all fields!")
-                        else:
-                            submission_time = baghdad_now.strftime("%Y-%m-%d %H:%M:%S")
-                            new_row = {
-                                "Employee": st.session_state.get("name"), 
-                                "Date": str(f_date), 
-                                "Ticket Number": f_ticket, 
-                                "Tab": f_tab, 
-                                "KPI": f_kpi, 
-                                "Details": f_details, 
-                                "Quality Decision": "Pending", 
-                                "Direct Manager": "Pending", 
-                                "Objection Issue Date": submission_time
-                            }
-                            updated_df = pd.concat([df_appeals, pd.DataFrame([new_row])], ignore_index=True)
-                            updated_df.to_csv(appeals_file, index=False)
-                            st.session_state.main_df = updated_df
-                            st.success(f"Submitted successfully at {submission_time}!")
-                            st.balloons()
-            with t_hist: 
-                st.dataframe(df_appeals[df_appeals['Employee'] == st.session_state.get("name")], use_container_width=True)
-
-    if username == 'jsafaa':
-        with admin_users_tab:
-            st.subheader("👥 Employee Directory Management")
-            with st.expander("➕ Add New Employee"):
-                new_u = st.text_input("New Username").lower().strip()
-                new_n = st.text_input("Full Name (Display)")
-                if st.button("Add to System"):
-                    if new_u and new_u not in users_df['username'].values:
-                        new_user_row = {"username": new_u, "password": "123", "name": new_n, "role": "Employee", "Force_Change": True}
-                        users_df = pd.concat([users_df, pd.DataFrame([new_user_row])], ignore_index=True)
-                        users_df.to_csv(users_file, index=False)
-                        st.session_state.pop('u_df')
-                        st.success(f"User {new_u} added!")
-                        st.rerun()
-
-            with st.expander("🔑 Change/Reset Employee Password"):
-                target_user = st.selectbox("Select User", users_df['username'].values)
-                new_pass = st.text_input("New Password", type="password")
-                if st.button("Update and Force Change"):
-                    users_df.loc[users_df['username'] == target_user, 'password'] = new_pass
-                    users_df.loc[users_df['username'] == target_user, 'Force_Change'] = True
-                    users_df.to_csv(users_file, index=False)
-                    st.session_state.pop('u_df')
-                    st.success(f"Password for {target_user} updated. User will be forced to change it on next login.")
-                    st.rerun()
-
-            with st.expander("🗑️ Remove Employee"):
-                del_user = st.selectbox("Select User to Remove", [u for u in users_df['username'].values if u not in ['jsafaa', 'ahatim']])
-                if st.button("Confirm Delete"):
-                    users_df = users_df[users_df['username'] != del_user]
-                    users_df.to_csv(users_file, index=False)
-                    st.session_state.pop('u_df')
-                    st.warning(f"User {del_user} removed.")
-                    st.rerun()
-
-elif st.session_state.get("authentication_status") == False:
-    st.error("Username/password is incorrect")
-else:
-    st.info("Please enter your username and password")
+                    f_date =
