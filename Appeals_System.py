@@ -4,20 +4,39 @@ import streamlit_authenticator as stauth
 import os
 from datetime import datetime
 
-# --- 1. إعدادات الصفحة ---
-st.set_page_config(page_title="NMC Objections", layout="wide")
+# --- 1. إعدادات الصفحة الأساسية ---
+st.set_page_config(page_title="NMC Portal", layout="wide")
 
-# --- 2. جلب البيانات بأسرع وسيلة (Caching) ---
-@st.cache_data(ttl=300) # تخزين البيانات لمدة 5 دقائق لسرعة فائقة
-def load_data(file, columns=None):
-    if not os.path.exists(file) and columns:
-        pd.DataFrame(columns=columns).to_csv(file, index=False)
-    return pd.read_csv(file)
+# --- 2. إدارة البيانات في الذاكرة (للسرعة القصوى) ---
+def init_data():
+    # تحميل بيانات الموظفين
+    if 'u_df' not in st.session_state:
+        if not os.path.exists("users_list.csv"):
+            # إعداد الحسابات الأساسية
+            initial_data = [
+                {"username": "jsafaa", "password": "admin123", "name": "SAFAA", "role": "Quality Engineer", "Force_Change": True},
+                {"username": "ahatim", "password": "manager123", "name": "HATIM", "role": "Head Of Section", "Force_Change": True},
+                {"username": "farook", "password": "manager123", "name": "FAROOK", "role": "Team Leader", "Force_Change": True}
+            ]
+            pd.DataFrame(initial_data).to_csv("users_list.csv", index=False)
+        
+        df = pd.read_csv("users_list.csv")
+        # التأكد من دور فاروق كـ Team Leader
+        if 'farook' in df['username'].values:
+            df.loc[df['username'] == 'farook', 'role'] = 'Team Leader'
+        st.session_state.u_df = df
 
-users_df = load_data("users_list.csv")
-df_appeals = load_data("database_appeals.csv", ["Employee", "Date", "Ticket Number", "Details", "Quality Decision", "Direct Manager"])
+    # تحميل بيانات الاعتراضات
+    if 'main_df' not in st.session_state:
+        if not os.path.exists("database_appeals.csv"):
+            cols = ["Employee", "Date", "Ticket Number", "Details", "Quality Decision", "Direct Manager", "Time"]
+            pd.DataFrame(columns=cols).to_csv("database_appeals.csv", index=False)
+        st.session_state.main_df = pd.read_csv("database_appeals.csv")
 
-# --- 3. إعداد الدخول ---
+init_data()
+
+# --- 3. نظام الدخول السريع ---
+users_df = st.session_state.u_df
 creds = {'usernames': {}}
 for _, r in users_df.iterrows():
     creds['usernames'][r['username']] = {
@@ -25,66 +44,89 @@ for _, r in users_df.iterrows():
         'password': str(r['password'])
     }
 
-auth = stauth.Authenticate(creds, 'nmc_c', 'nmc_k', cookie_expiry_days=30)
+# حفظ كائن المصادقة في الذاكرة لمنع إعادة إنشائه
+if 'authenticator' not in st.session_state:
+    st.session_state.authenticator = stauth.Authenticate(creds, 'nmc_cookie', 'nmc_key', cookie_expiry_days=30)
 
-st.markdown('<h2 style="text-align:center;">🛰️ NMC SYSTEM - FAST MODE</h2>', unsafe_allow_html=True)
+auth = st.session_state.authenticator
 
+# تسجيل الدخول
 try:
     auth.login()
 except:
-    st.info("Please Login")
+    st.info("Login required")
 
 if st.session_state.get("authentication_status"):
     user = st.session_state.get("username")
-    st.sidebar.markdown(f"👤 {creds['usernames'][user]['name']}")
+    u_info = users_df[users_df['username'] == user].iloc[0]
+    
+    # ميزة جبر التغيير عند أول دخول
+    if str(u_info.get('Force_Change', 'False')).lower() == 'true':
+        st.warning("Update password to continue.")
+        with st.form("fast_pwd"):
+            new_p = st.text_input("New Password", type="password")
+            if st.form_submit_button("Update"):
+                if new_p:
+                    st.session_state.u_df.loc[st.session_state.u_df['username'] == user, 'password'] = new_p
+                    st.session_state.u_df.loc[st.session_state.u_df['username'] == user, 'Force_Change'] = False
+                    st.session_state.u_df.to_csv("users_list.csv", index=False)
+                    st.success("Done!")
+                    st.rerun()
+        st.stop()
+
+    st.sidebar.write(f"👤 {user}")
     auth.logout('Logout', 'sidebar')
 
     # الصلاحيات
     is_admin = user in ['jsafaa', 'farook']
     is_mgmt = user in ['jsafaa', 'ahatim', 'farook']
 
-    # تم حذف خاصية الإضافة وبقي فقط المنج ستاف للريسيت
-    t_list = ["📊 System", "🔄 Staff Control"] if is_admin else ["📊 System"]
-    main_tabs = st.tabs(t_list)
+    # تم إلغاء خاصية إضافة موظف لزيادة السرعة بناءً على طلبك
+    tabs = st.tabs(["📊 System", "🔄 Reset Pass"]) if is_admin else st.tabs(["📊 System"])
 
-    with main_tabs[0]:
+    with tabs[0]:
         if is_mgmt:
-            st.dataframe(df_appeals, use_container_width=True)
-            with st.expander("Update"):
-                if not df_appeals.empty:
-                    idx = st.number_input("ID", 0, len(df_appeals)-1, 0)
+            st.dataframe(st.session_state.main_df, use_container_width=True)
+            with st.expander("Fast Edit"):
+                if not st.session_state.main_df.empty:
+                    idx = st.number_input("Row ID", 0, len(st.session_state.main_df)-1, 0)
                     c1, c2 = st.columns(2)
                     with c1:
-                        q_val = st.text_area("Quality", value=df_appeals.loc[idx, "Quality Decision"], disabled=(user != 'jsafaa'))
+                        # صلاحية صفاء للقرار الفني
+                        q_val = st.text_area("Quality", value=st.session_state.main_df.loc[idx, "Quality Decision"], disabled=(user != 'jsafaa'))
                     with c2:
-                        m_val = st.text_area("Manager", value=df_appeals.loc[idx, "Direct Manager"], disabled=(user == 'jsafaa'))
+                        # صلاحية المدير المباشر أو فاروق
+                        m_val = st.text_area("Manager", value=st.session_state.main_df.loc[idx, "Direct Manager"], disabled=(user == 'jsafaa'))
+                    
                     if st.button("Save"):
-                        df_appeals.loc[idx, "Quality Decision"] = q_val
-                        df_appeals.loc[idx, "Direct Manager"] = m_val
-                        df_appeals.to_csv("database_appeals.csv", index=False)
-                        st.cache_data.clear() # تحديث فوري
+                        st.session_state.main_df.loc[idx, "Quality Decision"] = q_val
+                        st.session_state.main_df.loc[idx, "Direct Manager"] = m_val
+                        st.session_state.main_df.to_csv("database_appeals.csv", index=False)
                         st.success("Saved")
-                        st.rerun()
         else:
-            with st.form("sub"):
-                tkt = st.text_input("Ticket")
+            with st.form("fast_sub"):
+                tkt = st.text_input("Ticket #")
                 det = st.text_area("Details")
-                if st.form_submit_button("Send"):
-                    new = {"Employee": user, "Date": str(datetime.now().date()), "Ticket Number": tkt, "Details": det, "Quality Decision": "Pending", "Direct Manager": "Pending"}
-                    pd.concat([df_appeals, pd.DataFrame([new])]).to_csv("database_appeals.csv", index=False)
-                    st.cache_data.clear()
+                if st.form_submit_button("Submit"):
+                    new_row = {
+                        "Employee": user, "Date": str(datetime.now().date()), 
+                        "Ticket Number": tkt, "Details": det, 
+                        "Quality Decision": "Pending", "Direct Manager": "Pending",
+                        "Time": datetime.now().strftime("%H:%M:%S")
+                    }
+                    st.session_state.main_df = pd.concat([st.session_state.main_df, pd.DataFrame([new_row])], ignore_index=True)
+                    st.session_state.main_df.to_csv("database_appeals.csv", index=False)
                     st.rerun()
 
-    if is_admin:
-        with main_tabs[1]:
-            st.subheader("Password Reset Only")
-            u_sel = st.selectbox("Select User", users_df['username'].values)
+    if is_admin and len(tabs) > 1:
+        with tabs[1]:
+            st.subheader("Quick Reset")
+            u_sel = st.selectbox("Select User", st.session_state.u_df['username'].values)
             if st.button("Reset to 123"):
-                users_df.loc[users_df['username'] == u_sel, 'password'] = "123"
-                users_df.loc[users_df['username'] == u_sel, 'Force_Change'] = True
-                users_df.to_csv("users_list.csv", index=False)
-                st.cache_data.clear()
-                st.success(f"Done for {u_sel}")
+                st.session_state.u_df.loc[st.session_state.u_df['username'] == u_sel, 'password'] = "123"
+                st.session_state.u_df.loc[st.session_state.u_df['username'] == u_sel, 'Force_Change'] = True
+                st.session_state.u_df.to_csv("users_list.csv", index=False)
+                st.success(f"User {u_sel} Reset")
 
 elif st.session_state.get("authentication_status") == False:
-    st.error("Error")
+    st.error("Invalid Credentials")
