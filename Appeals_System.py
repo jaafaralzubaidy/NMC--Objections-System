@@ -29,13 +29,12 @@ users_file = "users_list.csv"
 def get_all_data():
     if 'main_df' not in st.session_state:
         if not os.path.exists(appeals_file):
-            pd.DataFrame(columns=["Employee", "Date", "Ticket Number", "Tab", "Details", "Quality Decision", "Direct Manager", "Objection Issue Date"]).to_csv(appeals_file, index=False)
+            pd.DataFrame(columns=["Employee", "Date", "Ticket Number", "Tab", "Details", "Quality Decision", "Direct Manager", "Objection Issue Date", "KPI"]).to_csv(appeals_file, index=False)
         st.session_state.main_df = pd.read_csv(appeals_file)
     return st.session_state.main_df
 
 def get_users_df():
     if 'u_df' not in st.session_state:
-        # إنشاء الملف إذا لم يكن موجوداً
         if not os.path.exists(users_file):
             initial_users = ["ahatim", "mkhalid", "hfalah", "hmuayyad", "alimad", "rriyad", "hjabbar", "hmuhammada", "arubayi", "aadil", "ayasin", "fahmad", "hakali", "musadiq", "itsattar", "amusadaq", "aanbari", "afahad", "rthair", "omsubhi", "rwahab", "mlayth", "yasadi", "yriyad", "abfaysal", "hasanhadi", "hamuhsin", "aybasheer", "marmahmud", "abisameer", "jsafaa", "muhahamid", "murqasim", "moayad", "dadnan", "abiabbas", "qriyad", "tmustafa", "sbahnan", "admuhammad", "amohammad", "shzuhayr", "farook"]
             user_data = []
@@ -47,7 +46,7 @@ def get_users_df():
         
         df = pd.read_csv(users_file)
         
-        # --- تحديث تلقائي: إضافة فاروق إذا كان الملف موجوداً مسبقاً ---
+        # التأكد من إضافة فاروق في حال كان الملف قديم
         if 'farook' not in df['username'].values:
             new_user = {"username": "farook", "password": "manager123", "name": "FAROOK", "role": "Head Of Section", "Force_Change": True}
             df = pd.concat([df, pd.DataFrame([new_user])], ignore_index=True)
@@ -83,7 +82,6 @@ except:
 
 if st.session_state.get("authentication_status"):
     username = st.session_state.get("username")
-    
     user_row = users_df[users_df['username'] == username].iloc[0]
     needs_change = str(user_row.get('Force_Change', 'False')).lower() == 'true'
     
@@ -115,21 +113,13 @@ if st.session_state.get("authentication_status"):
     
     authenticator.logout('Logout', 'sidebar')
     
-    if "Objection Issue Date" not in df_appeals.columns:
-        df_appeals["Objection Issue Date"] = ""
-        df_appeals.to_csv(appeals_file, index=False)
-    if "KPI" not in df_appeals.columns:
-        df_appeals["KPI"] = ""
-        df_appeals.to_csv(appeals_file, index=False)
-
-    # --- إدارة التبويبات حسب الصلاحية (تم إضافة فاروق هنا) ---
+    # --- إدارة التبويبات حسب الصلاحية ---
     if username in ['jsafaa', 'farook']:
         main_tab, admin_users_tab = st.tabs(["📊 Main System", "👥 Manage Staff"])
     else:
         main_tab = st.container()
 
     with main_tab:
-        # السماح لـ فاروق برؤية لوحة التحكم (نفس صلاحية ahatim)
         if username in ['jsafaa', 'ahatim', 'farook']:
             st.subheader("🛠 MANAGEMENT CONTROL PANEL")
             st.dataframe(df_appeals, use_container_width=True)
@@ -138,19 +128,4 @@ if st.session_state.get("authentication_status"):
                     row_idx = st.number_input("Select Row ID", 0, len(df_appeals)-1, 0)
                     col1, col2 = st.columns(2)
                     with col1:
-                        # جعل التعديل متاحاً لفاروق (غير معطل)
                         q_dec = st.text_area("Quality Decision", value=df_appeals.loc[row_idx, "Quality Decision"], disabled=(username in ['ahatim', 'farook']))
-                    with col2:
-                        m_dec = st.text_area("Head Of Section Decision", value=df_appeals.loc[row_idx, "Direct Manager"], disabled=(username == 'jsafaa'))
-                    if st.button("Save Changes"):
-                        df_appeals.loc[row_idx, "Quality Decision"] = q_dec
-                        df_appeals.loc[row_idx, "Direct Manager"] = m_dec
-                        df_appeals.to_csv(appeals_file, index=False)
-                        st.session_state.pop('main_df')
-                        st.success("Updated!")
-                        st.rerun()
-        else:
-            t_sub, t_hist = st.tabs(["📤 Submit Objection", "📜 History"])
-            with t_sub:
-                with st.form("obj_form", clear_on_submit=True):
-                    f_date =
