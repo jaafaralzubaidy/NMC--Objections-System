@@ -40,7 +40,6 @@ def get_users_df():
             user_data = []
             for u in initial_users:
                 p = 'admin123' if u == 'jsafaa' else ('manager123' if u in ['ahatim', 'farook'] else '123')
-                # تعديل المسمى الوظيفي لفاروق هنا
                 if u == 'farook':
                     role = 'Team Leader'
                 elif u == 'ahatim':
@@ -54,7 +53,6 @@ def get_users_df():
         
         df = pd.read_csv(users_file)
         
-        # تحديث بيانات فاروق إذا كان موجوداً مسبقاً بمسمى قديم
         if 'farook' in df['username'].values:
             df.loc[df['username'] == 'farook', 'role'] = 'Team Leader'
             df.to_csv(users_file, index=False)
@@ -124,7 +122,6 @@ if st.session_state.get("authentication_status"):
     
     authenticator.logout('Logout', 'sidebar')
     
-    # --- إدارة التبويبات حسب الصلاحية ---
     if username in ['jsafaa', 'farook']:
         main_tab, admin_users_tab = st.tabs(["📊 Main System", "👥 Manage Staff"])
     else:
@@ -136,4 +133,5 @@ if st.session_state.get("authentication_status"):
             st.dataframe(df_appeals, use_container_width=True)
             with st.expander("Update Decisions"):
                 if not df_appeals.empty:
-                    row_idx =
+                    # سطر التعديل الذي حدث فيه الخطأ
+                    row_idx = st.number_input("Select
