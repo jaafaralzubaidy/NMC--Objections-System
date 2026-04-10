@@ -40,15 +40,26 @@ def get_users_df():
             user_data = []
             for u in initial_users:
                 p = 'admin123' if u == 'jsafaa' else ('manager123' if u in ['ahatim', 'farook'] else '123')
-                role = 'Head Of Section' if u in ['ahatim', 'farook'] else ('Quality Engineer' if u == 'jsafaa' else 'Employee')
+                # تعديل المسمى الوظيفي لفاروق هنا
+                if u == 'farook':
+                    role = 'Team Leader'
+                elif u == 'ahatim':
+                    role = 'Head Of Section'
+                elif u == 'jsafaa':
+                    role = 'Quality Engineer'
+                else:
+                    role = 'Employee'
                 user_data.append({"username": u, "password": p, "name": u.upper(), "role": role, "Force_Change": True})
             pd.DataFrame(user_data).to_csv(users_file, index=False)
         
         df = pd.read_csv(users_file)
         
-        # التأكد من إضافة فاروق في حال كان الملف قديم
-        if 'farook' not in df['username'].values:
-            new_user = {"username": "farook", "password": "manager123", "name": "FAROOK", "role": "Head Of Section", "Force_Change": True}
+        # تحديث بيانات فاروق إذا كان موجوداً مسبقاً بمسمى قديم
+        if 'farook' in df['username'].values:
+            df.loc[df['username'] == 'farook', 'role'] = 'Team Leader'
+            df.to_csv(users_file, index=False)
+        else:
+            new_user = {"username": "farook", "password": "manager123", "name": "FAROOK", "role": "Team Leader", "Force_Change": True}
             df = pd.concat([df, pd.DataFrame([new_user])], ignore_index=True)
             df.to_csv(users_file, index=False)
 
@@ -125,7 +136,4 @@ if st.session_state.get("authentication_status"):
             st.dataframe(df_appeals, use_container_width=True)
             with st.expander("Update Decisions"):
                 if not df_appeals.empty:
-                    row_idx = st.number_input("Select Row ID", 0, len(df_appeals)-1, 0)
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        q_dec = st.text_area("Quality Decision", value=df_appeals.loc[row_idx, "Quality Decision"], disabled=(username in ['ahatim', 'farook']))
+                    row_idx =
