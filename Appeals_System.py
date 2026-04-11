@@ -115,4 +115,40 @@ if st.session_state.get("authentication_status"):
 
     # نظام التبويبات
     if is_admin:
-        t1, t2, t3 =
+        t1, t2, t3 = st.tabs(["📊 Dashboard", "📤 Submit", "👥 Manage Staff"])
+    elif is_mgmt:
+        t1, t2 = st.tabs(["📊 Dashboard", "📤 Submit"])
+    else:
+        t1, t2 = st.tabs(["📤 Submit", "📜 History"])
+
+    # لوحة المدير
+    if is_mgmt:
+        with t1:
+            st.subheader("Submissions List")
+            st.dataframe(st.session_state.main_df, use_container_width=True)
+
+    # نموذج الاعتراض
+    target_tab = t2 if is_mgmt else t1
+    with target_tab:
+        st.subheader("New Objection")
+        with st.form("obj_form"):
+            tkt = st.text_input("Ticket ID")
+            dtls = st.text_area("Reason")
+            if st.form_submit_button("Send"):
+                st.success("Recorded")
+
+    # إدارة الموظفين
+    if is_admin:
+        with t3:
+            st.subheader("Employee Management")
+            target = st.selectbox("Select Staff", st.session_state.u_df['username'].unique())
+            if st.button("Reset to Default (123)"):
+                st.session_state.u_df.loc[st.session_state.u_df['username'] == target, 'password'] = "123"
+                st.session_state.u_df.loc[st.session_state.u_df['username'] == target, 'Force_Change'] = True
+                st.session_state.u_df.to_csv(users_file, index=False)
+                st.success(f"User {target} reset successfully.")
+
+elif st.session_state.get("authentication_status") is False:
+    st.error('Incorrect username or password')
+elif st.session_state.get("authentication_status") is None:
+    st.info('Please log in')
