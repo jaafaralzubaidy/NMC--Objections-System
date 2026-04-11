@@ -17,9 +17,8 @@ st.markdown("""
 appeals_file = "database_appeals.csv"
 users_file = "users_list.csv"
 
-# --- 2. إدارة البيانات ---
+# --- 2. إدارة الموظفين ---
 def get_users_df():
-    # القائمة الكاملة للموظفين
     initial_users = [
         "ahatim", "mkhalid", "hfalah", "hmuayyad", "alimad", "rriyad", "hjabbar", 
         "hmuhammada", "arubayi", "aadil", "ayasin", "fahmad", "hakali", "musadiq", 
@@ -32,16 +31,15 @@ def get_users_df():
 
     if os.path.exists(users_file):
         df = pd.read_csv(users_file)
-        # دمج أي موظف ناقص من القائمة
         existing = df['username'].tolist()
-        new_users = []
+        new_entries = []
         for u in initial_users:
             if u not in existing:
                 p = 'admin123' if u == 'jsafaa' else ('manager123' if u in ['ahatim', 'farook'] else '123')
                 role = 'Head Of Section' if u == 'ahatim' else ('Team Leader' if u == 'farook' else ('Quality Engineer' if u == 'jsafaa' else 'Employee'))
-                new_users.append({"username": u, "password": p, "name": u.upper(), "role": role, "Force_Change": True})
-        if new_users:
-            df = pd.concat([df, pd.DataFrame(new_users)], ignore_index=True)
+                new_entries.append({"username": u, "password": p, "name": u.upper(), "role": role, "Force_Change": True})
+        if new_entries:
+            df = pd.concat([df, pd.DataFrame(new_entries)], ignore_index=True)
             df.to_csv(users_file, index=False)
         return df
     else:
@@ -54,6 +52,7 @@ def get_users_df():
         df.to_csv(users_file, index=False)
         return df
 
+# تحميل البيانات
 if 'u_df' not in st.session_state:
     st.session_state.u_df = get_users_df()
 
@@ -64,6 +63,7 @@ if 'main_df' not in st.session_state:
         st.session_state.main_df = pd.DataFrame(columns=["Employee", "Date", "Ticket Number", "Tab", "KPI", "Details", "Quality Decision", "Direct Manager", "Objection Issue Date"])
 
 # --- 3. نظام المصادقة ---
+# تحضير بيانات الدخول للمكتبة
 credentials = {'usernames': {}}
 for _, row in st.session_state.u_df.iterrows():
     credentials['usernames'][str(row['username'])] = {
@@ -71,7 +71,29 @@ for _, row in st.session_state.u_df.iterrows():
         'password': str(row['password'])
     }
 
-# إنشاء كائن المصادقة
-authenticator = stauth.Authenticate(credentials, 'nmc_portal', 'auth_key', cookie_expiry_days=30)
+# إعداد كائن المصادقة (اسم الكوكي والمفتاح مهمين)
+authenticator = stauth.Authenticate(
+    credentials, 
+    'nmc_objections_cookie', 
+    'abcdef', 
+    cookie_expiry_days=30
+)
 
-# --- 4. واجهة الدخول (تم إصلاح الخطأ هنا) ---
+# --- 4. واجهة تسجيل الدخول ---
+st.markdown('<div class="main-title">🛰️ NMC OBJECTIONS SYSTEM</div><hr>', unsafe_allow_html=True)
+
+# استدعاء دالة الدخول بأبسط صورة لضمان الظهور
+# إذا لم تظهر الخانة، المكتبة ستبلغنا بالخطأ مباشرة
+try:
+    authenticator.login()
+except Exception:
+    # نسخة احتياطية في حال كان الإصدار قديماً جداً
+    authenticator.login('Login', 'main')
+
+# التحقق من حالة الدخول
+if st.session_state.get("authentication_status"):
+    username = st.session_state["username"]
+    name = st.session_state["name"]
+    
+    # جلب بيانات المستخدم
+    user_row = st.session_state.u_df[st
