@@ -36,22 +36,15 @@ def get_all_data():
 def get_users_df():
     if 'u_df' not in st.session_state:
         if not os.path.exists(users_file):
-            initial_users = ["ahatim", "farook", "mkhalid", "hfalah", "hmuayyad", "alimad", "rriyad", "hjabbar", "hmuhammada", "arubayi", "aadil", "ayasin", "fahmad", "hakali", "musadiq", "itsattar", "amusadaq", "aanbari", "afahad", "rthair", "omsubhi", "rwahab", "mlayth", "yasadi", "yriyad", "abfaysal", "hasanhadi", "hamuhsin", "aybasheer", "marmahmud", "abisameer", "jsafaa", "muhahamid", "murqasim", "moayad", "dadnan", "abiabbas", "qriyad", "tmustafa", "sbahnan", "admuhammad", "amohammad", "shzuhayr"]
+            initial_users = ["ahatim", "mkhalid", "hfalah", "hmuayyad", "alimad", "rriyad", "hjabbar", "hmuhammada", "arubayi", "aadil", "ayasin", "fahmad", "hakali", "musadiq", "itsattar", "amusadaq", "aanbari", "afahad", "rthair", "omsubhi", "rwahab", "mlayth", "yasadi", "yriyad", "abfaysal", "hasanhadi", "hamuhsin", "aybasheer", "marmahmud", "abisameer", "jsafaa", "muhahamid", "murqasim", "moayad", "dadnan", "abiabbas", "qriyad", "tmustafa", "sbahnan", "admuhammad", "amohammad", "shzuhayr"]
             user_data = []
             for u in initial_users:
-                p = 'admin123' if u == 'jsafaa' else ('manager123' if u in ['ahatim', 'farook'] else '123')
-                role = 'Team Leader' if u == 'farook' else ('Head Of Section' if u == 'ahatim' else ('Quality Engineer' if u == 'jsafaa' else 'Employee'))
+                p = 'admin123' if u == 'jsafaa' else ('manager123' if u == 'ahatim' else '123')
+                role = 'Head Of Section' if u == 'ahatim' else ('Quality Engineer' if u == 'jsafaa' else 'Employee')
                 user_data.append({"username": u, "password": p, "name": u.upper(), "role": role, "Force_Change": True})
             pd.DataFrame(user_data).to_csv(users_file, index=False)
             
         df = pd.read_csv(users_file)
-        
-        # التأكد من إضافة فاروق للملفات القديمة إن لم يكن موجوداً
-        if 'farook' not in df['username'].values:
-            new_farook = {"username": "farook", "password": "manager123", "name": "FAROOK", "role": "Team Leader", "Force_Change": True}
-            df = pd.concat([df, pd.DataFrame([new_farook])], ignore_index=True)
-            df.to_csv(users_file, index=False)
-            
         if "Force_Change" not in df.columns:
             df["Force_Change"] = df["password"].astype(str).isin(['123', 'admin123', 'manager123'])
             df.to_csv(users_file, index=False)
@@ -132,7 +125,7 @@ if st.session_state.get("authentication_status"):
         main_tab = st.container()
 
     with main_tab:
-        if username in ['jsafaa', 'ahatim', 'farook']:
+        if username in ['jsafaa', 'ahatim']:
             st.subheader("🛠 MANAGEMENT CONTROL PANEL")
             st.dataframe(df_appeals, use_container_width=True)
             with st.expander("Update Decisions"):
@@ -140,7 +133,7 @@ if st.session_state.get("authentication_status"):
                     row_idx = st.number_input("Select Row ID", 0, len(df_appeals)-1, 0)
                     col1, col2 = st.columns(2)
                     with col1:
-                        q_dec = st.text_area("Quality Decision", value=df_appeals.loc[row_idx, "Quality Decision"], disabled=(username in ['ahatim', 'farook']))
+                        q_dec = st.text_area("Quality Decision", value=df_appeals.loc[row_idx, "Quality Decision"], disabled=(username == 'ahatim'))
                     with col2:
                         m_dec = st.text_area("Head Of Section Decision", value=df_appeals.loc[row_idx, "Direct Manager"], disabled=(username == 'jsafaa'))
                     if st.button("Save Changes"):
@@ -213,7 +206,7 @@ if st.session_state.get("authentication_status"):
                     st.rerun()
 
             with st.expander("🗑️ Remove Employee"):
-                del_user = st.selectbox("Select User to Remove", [u for u in users_df['username'].values if u not in ['jsafaa', 'ahatim', 'farook']])
+                del_user = st.selectbox("Select User to Remove", [u for u in users_df['username'].values if u not in ['jsafaa', 'ahatim']])
                 if st.button("Confirm Delete"):
                     users_df = users_df[users_df['username'] != del_user]
                     users_df.to_csv(users_file, index=False)
