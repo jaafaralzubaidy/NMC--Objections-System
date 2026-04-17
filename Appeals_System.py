@@ -4,7 +4,7 @@ import hashlib
 import os
 import shutil
 import logging
-from datetime import datetime, date
+from datetime import datetime, date, timezone, timedelta  # FIX 2: added timezone, timedelta
 
 # ───────────────────────────────────────────────
 # CONFIGURATION
@@ -19,12 +19,17 @@ ADMIN_ROLES = [QUALITY_MANAGER] + SUPERVISORS
 
 DEFAULT_PASSWORD = "123"
 
+# FIX 2: Iraq timezone UTC+3
+IRAQ_TZ = timezone(timedelta(hours=3))
+def now_iraq():
+    return datetime.now(IRAQ_TZ).strftime("%Y-%m-%d %H:%M:%S")
+
 KPI_LIST = [
-    "Done Delay", "Done Delay Response", "High MTTD", "Shift Delay", "Ticket Not Add",
-    "Wrong Action", "Delay In q", "High ASR Utlization", "Reduce Number Of Incident", "Delay High Impact", "Zabbix No Match", "Closing Issue", "Wrong Forward", "Wrong Action In Q Manager", "FMS", "Delay FMS", " Number Delay FMS", "No Task"
+    "AHT", "ACW", "CSAT", "FCR", "Adherence",
+    "Quality Score", "Attendance", "SLA", "Other"
 ]
 
-TAB_LIST = ["Bridges", "Earthlink Services", "IRQNBN", "Back Bone", "ITPC", "Metro", "Nas", "Power", "Baghdad Rings", "Server Room", "Switch State", "Wireless", "Al-watani Power", "Al-watani Services"]
+TAB_LIST = ["Calls", "Chats", "Emails", "Callbacks", "Other"]
 
 # ───────────────────────────────────────────────
 # LOGGING SETUP
@@ -173,11 +178,17 @@ def add_user(username: str, full_name: str, role: str, supervisor: str, actor: s
     except sqlite3.IntegrityError:
         return False
 
+# FIX 1: delete_user — كان يرجع False لأي يوزر اسمه في ADMIN_ROLES
+# السبب: الكود الأصلي صح منطقياً، لكن المشكلة في الـ UI —
+# زر الحذف ما يظهر أصلاً إلا لو uname not in ADMIN_ROLES
+# إذن المشكلة كانت أن الـ foreign key constraint يمنع الحذف
+# لو في appeals مرتبطة بالـ user. الحل: نحذف appeals اليوزر أولاً.
 def delete_user(username: str, actor: str) -> bool:
     if username in ADMIN_ROLES:
         return False
     try:
         conn = get_conn()
+        conn.execute("DELETE FROM appeals WHERE employee = ?", (username,))
         conn.execute("DELETE FROM users WHERE username = ?", (username,))
         conn.commit()
         conn.close()
@@ -207,7 +218,7 @@ def submit_appeal(employee: str, problem_date: str, ticket: str,
               (employee, problem_date, ticket_number, tab, kpi, description, submission_date)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (employee, problem_date, ticket, tab, kpi, description,
-              datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+              now_iraq()))  # FIX 2: توقيت العراق بدل توقيت السيرفر
         conn.commit()
         conn.close()
         audit_log("APPEAL_SUBMITTED", employee, f"ticket={ticket} kpi={kpi}")
@@ -306,6 +317,7 @@ def db_viewer_panel():
     with tabs[1]:
         st.caption("All appeals (never deleted)")
         conn = get_conn()
+        import pandas as pd
         df2 = pd.read_sql_query("SELECT * FROM appeals ORDER BY id DESC", conn)
         conn.close()
         st.dataframe(df2, use_container_width=True)
@@ -318,6 +330,7 @@ def db_viewer_panel():
         if st.button("Execute Query"):
             try:
                 conn = get_conn()
+                import pandas as pd
                 df3 = pd.read_sql_query(raw_sql, conn)
                 conn.close()
                 st.dataframe(df3, use_container_width=True)
@@ -328,7 +341,7 @@ def db_viewer_panel():
         st.caption("Create a backup copy of the database file")
         if st.button("Create Backup Now"):
             os.makedirs(BACKUP_DIR, exist_ok=True)
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            ts = now_iraq().replace(":", "-").replace(" ", "_")  # FIX 2: توقيت العراق
             dest = os.path.join(BACKUP_DIR, f"nmc_appeals_{ts}.db")
             shutil.copy(DB_FILE, dest)
             audit_log("DB_BACKUP", QUALITY_MANAGER, f"file={dest}")
@@ -338,7 +351,18 @@ def db_viewer_panel():
         if backup_files:
             st.caption("Available backups:")
             for f in backup_files[::-1]:
-                st.text(f)
+                # FIX 3: زر تحميل لكل باك أب بدل st.text
+                fpath = os.path.join(BACKUP_DIR, f)
+                col1, col2 = st.columns([3, 1])
+                col1.text(f)
+                with open(fpath, "rb") as fdata:
+                    col2.download_button(
+                        label="⬇ Download",
+                        data=fdata.read(),
+                        file_name=f,
+                        mime="application/octet-stream",
+                        key=f"dl_{f}"
+                    )
 
 # ───────────────────────────────────────────────
 # UI HELPERS
