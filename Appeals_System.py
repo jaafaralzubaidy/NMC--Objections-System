@@ -4,7 +4,7 @@ import hashlib
 import os
 import shutil
 import logging
-from datetime import datetime, date, timezone, timedelta  # FIX 2: added timezone, timedelta
+from datetime import datetime, date, timezone, timedelta
 
 # ───────────────────────────────────────────────
 # CONFIGURATION
@@ -19,17 +19,26 @@ ADMIN_ROLES = [QUALITY_MANAGER] + SUPERVISORS
 
 DEFAULT_PASSWORD = "123"
 
-# FIX 2: Iraq timezone UTC+3
+# Iraq timezone UTC+3
 IRAQ_TZ = timezone(timedelta(hours=3))
 def now_iraq():
     return datetime.now(IRAQ_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
+def today_iraq():
+    return datetime.now(IRAQ_TZ).strftime("%Y-%m-%d")
+
 KPI_LIST = [
     "Done Delay", "Done Delay Response", "High MTTD", "Shift Delay", "Ticket Not Add",
-    "Wrong Action", "Delay In q", "High ASR Utlization", "Reduce Number Of Incident", "Delay High Impact", "Zabbix No Match", "Closing Issue", "Wrong Forward", "Wrong Action In Q Manager", "FMS", "Delay FMS", " Number Delay FMS", "No Task"
+    "Wrong Action", "Delay In q", "High ASR Utlization", "Reduce Number Of Incident",
+    "Delay High Impact", "Zabbix No Match", "Closing Issue", "Wrong Forward",
+    "Wrong Action In Q Manager", "FMS", "Delay FMS", " Number Delay FMS", "No Task"
 ]
 
-TAB_LIST = ["Bridges", "Earthlink Services", "IRQNBN", "Back Bone", "ITPC", "Metro", "Nas", "Power", "Baghdad Rings", "Server Room", "Switch State", "Wireless", "Al-watani Power", "Al-watani Services"]
+TAB_LIST = [
+    "Bridges", "Earthlink Services", "IRQNBN", "Back Bone", "ITPC", "Metro",
+    "Nas", "Power", "Baghdad Rings", "Server Room", "Switch State", "Wireless",
+    "Al-watani Power", "Al-watani Services"
+]
 
 # ───────────────────────────────────────────────
 # LOGGING SETUP
@@ -43,6 +52,40 @@ logging.basicConfig(
 
 def audit_log(action: str, actor: str, details: str = ""):
     logging.info(f"ACTOR={actor} | ACTION={action} | {details}")
+
+# ───────────────────────────────────────────────
+# AUTO DAILY BACKUP
+# يعمل باك أب تلقائي مرة واحدة في اليوم عند أول تشغيل للبرنامج
+# يحتفظ بآخر 30 نسخة فقط ويحذف الأقدم تلقائياً
+# ───────────────────────────────────────────────
+def auto_daily_backup():
+    try:
+        if not os.path.exists(DB_FILE):
+            return  # قاعدة البيانات ما موجودة بعد
+
+        os.makedirs(BACKUP_DIR, exist_ok=True)
+        today = today_iraq()
+
+        # تحقق إذا في باك أب لهذا اليوم موجود بالفعل
+        existing = os.listdir(BACKUP_DIR)
+        already_backed_up = any(f.startswith(f"auto_{today}") for f in existing)
+
+        if not already_backed_up:
+            ts = now_iraq().replace(":", "-").replace(" ", "_")
+            dest = os.path.join(BACKUP_DIR, f"auto_{today}_{ts}.db")
+            shutil.copy(DB_FILE, dest)
+            audit_log("AUTO_BACKUP", "system", f"file={dest}")
+
+            # احتفظ بآخر 30 نسخة فقط — احذف الأقدم
+            all_backups = sorted(
+                [f for f in os.listdir(BACKUP_DIR) if f.endswith(".db")],
+                reverse=True
+            )
+            for old in all_backups[30:]:
+                os.remove(os.path.join(BACKUP_DIR, old))
+
+    except Exception as e:
+        audit_log("AUTO_BACKUP_ERROR", "system", str(e))
 
 # ───────────────────────────────────────────────
 # DATABASE INITIALIZATION
@@ -178,11 +221,6 @@ def add_user(username: str, full_name: str, role: str, supervisor: str, actor: s
     except sqlite3.IntegrityError:
         return False
 
-# FIX 1: delete_user — كان يرجع False لأي يوزر اسمه في ADMIN_ROLES
-# السبب: الكود الأصلي صح منطقياً، لكن المشكلة في الـ UI —
-# زر الحذف ما يظهر أصلاً إلا لو uname not in ADMIN_ROLES
-# إذن المشكلة كانت أن الـ foreign key constraint يمنع الحذف
-# لو في appeals مرتبطة بالـ user. الحل: نحذف appeals اليوزر أولاً.
 def delete_user(username: str, actor: str) -> bool:
     if username in ADMIN_ROLES:
         return False
@@ -217,8 +255,7 @@ def submit_appeal(employee: str, problem_date: str, ticket: str,
             INSERT INTO appeals
               (employee, problem_date, ticket_number, tab, kpi, description, submission_date)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (employee, problem_date, ticket, tab, kpi, description,
-              now_iraq()))  # FIX 2: توقيت العراق بدل توقيت السيرفر
+        """, (employee, problem_date, ticket, tab, kpi, description, now_iraq()))
         conn.commit()
         conn.close()
         audit_log("APPEAL_SUBMITTED", employee, f"ticket={ticket} kpi={kpi}")
@@ -338,23 +375,29 @@ def db_viewer_panel():
                 st.error(f"SQL Error: {e}")
 
     with tabs[3]:
-        st.caption("Create a backup copy of the database file")
-        if st.button("Create Backup Now"):
+        # ── معلومة الأوتو باك أب ──
+        st.info(
+            "🔄 **Auto Backup Active:** The system automatically creates a daily backup "
+            "every time the app starts (once per day, Iraq time). Last 30 backups are kept. "
+            f"Today: {today_iraq()}"
+        )
+        st.caption("You can also create a manual backup anytime:")
+        if st.button("Create Manual Backup Now"):
             os.makedirs(BACKUP_DIR, exist_ok=True)
-            ts = now_iraq().replace(":", "-").replace(" ", "_")  # FIX 2: توقيت العراق
-            dest = os.path.join(BACKUP_DIR, f"nmc_appeals_{ts}.db")
+            ts = now_iraq().replace(":", "-").replace(" ", "_")
+            dest = os.path.join(BACKUP_DIR, f"manual_{ts}.db")
             shutil.copy(DB_FILE, dest)
-            audit_log("DB_BACKUP", QUALITY_MANAGER, f"file={dest}")
-            st.success(f"Backup saved: {dest}")
+            audit_log("DB_BACKUP_MANUAL", QUALITY_MANAGER, f"file={dest}")
+            st.success(f"Manual backup saved: {dest}")
 
         backup_files = sorted(os.listdir(BACKUP_DIR)) if os.path.exists(BACKUP_DIR) else []
         if backup_files:
-            st.caption("Available backups:")
+            st.caption(f"Available backups ({len(backup_files)} file(s)) — 🟢 auto | 🔵 manual:")
             for f in backup_files[::-1]:
-                # FIX 3: زر تحميل لكل باك أب بدل st.text
                 fpath = os.path.join(BACKUP_DIR, f)
                 col1, col2 = st.columns([3, 1])
-                col1.text(f)
+                label = f"🟢 {f}" if f.startswith("auto_") else f"🔵 {f}"
+                col1.text(label)
                 with open(fpath, "rb") as fdata:
                     col2.download_button(
                         label="⬇ Download",
@@ -363,6 +406,8 @@ def db_viewer_panel():
                         mime="application/octet-stream",
                         key=f"dl_{f}"
                     )
+        else:
+            st.info("No backups yet. Restart the app or click the button above.")
 
 # ───────────────────────────────────────────────
 # UI HELPERS
@@ -745,6 +790,9 @@ def main():
 
     # Initialize DB on every startup (safe, uses IF NOT EXISTS)
     init_db()
+
+    # ── AUTO DAILY BACKUP — يشتغل تلقائياً عند كل تشغيل للبرنامج ──
+    auto_daily_backup()
 
     # ── Sidebar: Logout ──
     if "user" in st.session_state:
