@@ -24,7 +24,7 @@ KPI_LIST = [
     "Wrong Action", "Delay In q", "High ASR Utlization", "Reduce Number Of Incident", "Delay High Impact", "Zabbix No Match", "Closing Issue", "Wrong Forward", "Wrong Action In Q Manager", "FMS", "Delay FMS", " Number Delay FMS", "No Task"
 ]
 
-TAB_LIST = ["Calls", "Chats", "Emails", "Callbacks", "Other"]
+TAB_LIST = ["Bridges", "Earthlink Services", "IRQNBN", "Back Bone", "ITPC", "Metro", "Nas", "Power", "Baghdad Rings", "Server Room", "Switch State", "Wireless", "Al-watani Power", "Al-watani Services"]
 
 # ───────────────────────────────────────────────
 # LOGGING SETUP
