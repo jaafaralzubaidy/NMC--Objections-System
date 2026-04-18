@@ -9,9 +9,13 @@ from datetime import datetime, date, timezone, timedelta
 # ───────────────────────────────────────────────
 # CONFIGURATION
 # ───────────────────────────────────────────────
-DB_FILE = "nmc_appeals.db"
-BACKUP_DIR = "db_backups"
-LOG_FILE = "system_audit.log"
+
+# ✅ FIX 1: مسار ثابت لقاعدة البيانات بجانب ملف البرنامج نفسه
+# هذا يمنع إنشاء قاعدة بيانات جديدة فارغة في كل مجلد تشغيل
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_FILE   = os.path.join(BASE_DIR, "nmc_appeals.db")
+BACKUP_DIR = os.path.join(BASE_DIR, "db_backups")
+LOG_FILE   = os.path.join(BASE_DIR, "system_audit.log")
 
 QUALITY_MANAGER = "jsafaa"
 SUPERVISORS = ["ahatim", "farook"]
@@ -55,18 +59,15 @@ def audit_log(action: str, actor: str, details: str = ""):
 
 # ───────────────────────────────────────────────
 # AUTO DAILY BACKUP
-# يعمل باك أب تلقائي مرة واحدة في اليوم عند أول تشغيل للبرنامج
-# يحتفظ بآخر 30 نسخة فقط ويحذف الأقدم تلقائياً
 # ───────────────────────────────────────────────
 def auto_daily_backup():
     try:
         if not os.path.exists(DB_FILE):
-            return  # قاعدة البيانات ما موجودة بعد
+            return
 
         os.makedirs(BACKUP_DIR, exist_ok=True)
         today = today_iraq()
 
-        # تحقق إذا في باك أب لهذا اليوم موجود بالفعل
         existing = os.listdir(BACKUP_DIR)
         already_backed_up = any(f.startswith(f"auto_{today}") for f in existing)
 
@@ -76,7 +77,6 @@ def auto_daily_backup():
             shutil.copy(DB_FILE, dest)
             audit_log("AUTO_BACKUP", "system", f"file={dest}")
 
-            # احتفظ بآخر 30 نسخة فقط — احذف الأقدم
             all_backups = sorted(
                 [f for f in os.listdir(BACKUP_DIR) if f.endswith(".db")],
                 reverse=True
@@ -134,17 +134,23 @@ def init_db():
         )
     """)
 
-    # ── Seed default admin & supervisor accounts ──
+    # ✅ FIX 2: seed الحسابات الافتراضية فقط إذا المستخدم غير موجود أصلاً
+    # لا يمس الباسوورد أو force_change إذا المستخدم موجود مسبقاً
     default_accounts = [
         ("jsafaa",  "Safaa Al-Quality",  "quality_manager", ""),
         ("ahatim",  "Hatim Manager",     "supervisor",      ""),
         ("farook",  "Farook Manager",    "supervisor",      ""),
     ]
     for uname, fname, role, sup in default_accounts:
-        c.execute("""
-            INSERT OR IGNORE INTO users (username, password_hash, full_name, role, supervisor, force_change)
-            VALUES (?, ?, ?, ?, ?, 1)
-        """, (uname, hash_password(DEFAULT_PASSWORD), fname, role, sup))
+        c.execute("SELECT id FROM users WHERE username = ?", (uname,))
+        exists = c.fetchone()
+        if not exists:
+            # ✅ يضيف فقط إذا المستخدم غير موجود — لا يعيد ضبط باسووردات أبداً
+            c.execute("""
+                INSERT INTO users (username, password_hash, full_name, role, supervisor, force_change)
+                VALUES (?, ?, ?, ?, ?, 1)
+            """, (uname, hash_password(DEFAULT_PASSWORD), fname, role, sup))
+            audit_log("SEED_USER_CREATED", "system", f"user={uname}")
 
     conn.commit()
     conn.close()
@@ -375,7 +381,6 @@ def db_viewer_panel():
                 st.error(f"SQL Error: {e}")
 
     with tabs[3]:
-        # ── معلومة الأوتو باك أب ──
         st.info(
             "🔄 **Auto Backup Active:** The system automatically creates a daily backup "
             "every time the app starts (once per day, Iraq time). Last 30 backups are kept. "
@@ -406,24 +411,22 @@ def db_viewer_panel():
                         mime="application/octet-stream",
                         key=f"dl_{f}"
                     )
-        else:
-            st.info("No backups yet. Restart the app or click the button above.")
 
 # ───────────────────────────────────────────────
 # UI HELPERS
 # ───────────────────────────────────────────────
 def status_badge(status: str) -> str:
     colors = {
-        "Pending":                 "#FFA500",
-        "Reviewed by Quality":     "#1E90FF",
-        "Reviewed by Manager":     "#32CD32",
+        "Pending":               "#f0ad4e",
+        "Reviewed by Quality":   "#5bc0de",
+        "Reviewed by Manager":   "#5cb85c",
     }
-    color = colors.get(status, "#888888")
-    return f'<span style="background:{color};color:white;padding:2px 10px;border-radius:12px;font-size:12px;">{status}</span>'
+    color = colors.get(status, "#aaa")
+    return f'<span style="background:{color};color:#fff;padding:2px 10px;border-radius:12px;font-size:0.85em;">{status}</span>'
 
-def appeal_card(row, is_admin: bool = False, actor: str = "", panel: str = "quality"):
+def appeal_card(row, is_admin=False, actor="", panel="quality"):
     """
-    row columns (all appeals):
+    row columns (all/supervisor appeals):
     0:id, 1:employee, 2:problem_date, 3:ticket, 4:tab, 5:kpi,
     6:description, 7:submission_date, 8:quality_response, 9:manager_response, 10:status
     """
@@ -548,7 +551,6 @@ def page_employee():
 
     tab1, tab2, tab3 = st.tabs(["Submit Appeal", "My Appeals", "Change Password"])
 
-    # ── TAB 1: Submit Appeal ──
     with tab1:
         st.subheader("Submit New Appeal")
         with st.form("appeal_form", clear_on_submit=True):
@@ -588,7 +590,6 @@ def page_employee():
                 else:
                     st.error("Error submitting appeal. Please try again.")
 
-    # ── TAB 2: My Appeals ──
     with tab2:
         st.subheader("My Appeals")
         appeals = get_my_appeals(user["username"])
@@ -599,7 +600,6 @@ def page_employee():
             for row in appeals:
                 my_appeal_card(row)
 
-    # ── TAB 3: Change Password ──
     with tab3:
         st.subheader("Change My Password")
         old_pw  = st.text_input("Current Password", type="password", key="emp_old")
@@ -671,14 +671,12 @@ def page_quality_manager():
         "Change My Password"
     ])
 
-    # ── TAB 1: All Appeals ──
     with tab1:
         st.subheader("All Employee Appeals")
         appeals = get_all_appeals()
         if not appeals:
             st.info("No appeals submitted yet.")
         else:
-            # Filter controls
             col1, col2, col3 = st.columns(3)
             employees   = list(set(r[1] for r in appeals))
             kpis        = list(set(r[5] for r in appeals))
@@ -697,7 +695,6 @@ def page_quality_manager():
             for row in filtered:
                 appeal_card(row, is_admin=True, actor=user["username"], panel="quality")
 
-    # ── TAB 2: User Management ──
     with tab2:
         st.subheader("User Management")
 
@@ -735,7 +732,6 @@ def page_quality_manager():
                     st.markdown(f"**Force Change Password:** {'Yes' if fc else 'No'}")
 
                     col_a, col_b = st.columns(2)
-                    # Reset password
                     if col_a.button(f"Reset Password to 123", key=f"rst_{uid}"):
                         if uname == user["username"]:
                             col_a.warning("Cannot reset your own password here.")
@@ -744,7 +740,6 @@ def page_quality_manager():
                         else:
                             col_a.error("Error resetting password.")
 
-                    # Delete user (protected accounts cannot be deleted)
                     if uname not in ADMIN_ROLES:
                         if col_b.button(f"Delete User", key=f"del_{uid}", type="secondary"):
                             if delete_user(uname, user["username"]):
@@ -755,11 +750,9 @@ def page_quality_manager():
                     else:
                         col_b.markdown("*(Protected Account)*")
 
-    # ── TAB 3: Database Access ──
     with tab3:
         db_viewer_panel()
 
-    # ── TAB 4: Change My Password ──
     with tab4:
         st.subheader("Change My Password")
         old_pw  = st.text_input("Current Password", type="password", key="qm_old")
@@ -788,13 +781,9 @@ def main():
         layout="wide"
     )
 
-    # Initialize DB on every startup (safe, uses IF NOT EXISTS)
     init_db()
-
-    # ── AUTO DAILY BACKUP — يشتغل تلقائياً عند كل تشغيل للبرنامج ──
     auto_daily_backup()
 
-    # ── Sidebar: Logout ──
     if "user" in st.session_state:
         with st.sidebar:
             u = st.session_state["user"]
@@ -806,19 +795,16 @@ def main():
                 st.session_state.clear()
                 st.rerun()
 
-    # ── Routing ──
     if "user" not in st.session_state:
         page_login()
         return
 
     user = st.session_state["user"]
 
-    # Force password change on first login
     if user["force_change"]:
         page_force_change()
         return
 
-    # Route by role
     role = user["role"]
     if role == "quality_manager":
         page_quality_manager()
