@@ -9,13 +9,9 @@ from datetime import datetime, date, timezone, timedelta
 # ───────────────────────────────────────────────
 # CONFIGURATION
 # ───────────────────────────────────────────────
-
-# ✅ FIX 1: مسار ثابت لقاعدة البيانات بجانب ملف البرنامج نفسه
-# هذا يمنع إنشاء قاعدة بيانات جديدة فارغة في كل مجلد تشغيل
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_FILE   = os.path.join(BASE_DIR, "nmc_appeals.db")
-BACKUP_DIR = os.path.join(BASE_DIR, "db_backups")
-LOG_FILE   = os.path.join(BASE_DIR, "system_audit.log")
+DB_FILE = "nmc_appeals.db"
+BACKUP_DIR = "db_backups"
+LOG_FILE = "system_audit.log"
 
 QUALITY_MANAGER = "jsafaa"
 SUPERVISORS = ["ahatim", "farook"]
@@ -59,6 +55,8 @@ def audit_log(action: str, actor: str, details: str = ""):
 
 # ───────────────────────────────────────────────
 # AUTO DAILY BACKUP
+# يعمل باك أب تلقائي مرة واحدة في اليوم عند أول تشغيل للبرنامج
+# يحتفظ بآخر 30 نسخة فقط ويحذف الأقدم تلقائياً
 # ───────────────────────────────────────────────
 def auto_daily_backup():
     try:
@@ -86,6 +84,16 @@ def auto_daily_backup():
 
     except Exception as e:
         audit_log("AUTO_BACKUP_ERROR", "system", str(e))
+
+def get_todays_backup_path():
+    """يرجع مسار واسم باك أب اليوم إذا موجود"""
+    today = today_iraq()
+    if not os.path.exists(BACKUP_DIR):
+        return None, None
+    for f in sorted(os.listdir(BACKUP_DIR), reverse=True):
+        if f.startswith(f"auto_{today}") and f.endswith(".db"):
+            return os.path.join(BACKUP_DIR, f), f
+    return None, None
 
 # ───────────────────────────────────────────────
 # DATABASE INITIALIZATION
@@ -134,23 +142,16 @@ def init_db():
         )
     """)
 
-    # ✅ FIX 2: seed الحسابات الافتراضية فقط إذا المستخدم غير موجود أصلاً
-    # لا يمس الباسوورد أو force_change إذا المستخدم موجود مسبقاً
     default_accounts = [
-        ("jsafaa",  "Zubaidy",  "quality_manager", ""),
-        ("ahatim",  "Ali",     "Head Of Section",      ""),
-        ("farook",  "Farook",    "Team Leader",      ""),
+        ("jsafaa",  "Safaa Al-Quality",  "quality_manager", ""),
+        ("ahatim",  "Hatim Manager",     "supervisor",      ""),
+        ("farook",  "Farook Manager",    "supervisor",      ""),
     ]
     for uname, fname, role, sup in default_accounts:
-        c.execute("SELECT id FROM users WHERE username = ?", (uname,))
-        exists = c.fetchone()
-        if not exists:
-            # ✅ يضيف فقط إذا المستخدم غير موجود — لا يعيد ضبط باسووردات أبداً
-            c.execute("""
-                INSERT INTO users (username, password_hash, full_name, role, supervisor, force_change)
-                VALUES (?, ?, ?, ?, ?, 1)
-            """, (uname, hash_password(DEFAULT_PASSWORD), fname, role, sup))
-            audit_log("SEED_USER_CREATED", "system", f"user={uname}")
+        c.execute("""
+            INSERT OR IGNORE INTO users (username, password_hash, full_name, role, supervisor, force_change)
+            VALUES (?, ?, ?, ?, ?, 1)
+        """, (uname, hash_password(DEFAULT_PASSWORD), fname, role, sup))
 
     conn.commit()
     conn.close()
@@ -347,8 +348,9 @@ def db_viewer_panel():
     st.markdown("---")
     st.subheader("Database Direct Access")
 
-    tabs = st.tabs(["Users Table", "Appeals Table", "Run SQL Query", "Backup DB"])
+    tabs = st.tabs(["Users Table", "Appeals Table", "Run SQL Query", "Backup DB", "Restore DB"])
 
+    # ── TAB 0: Users Table ──
     with tabs[0]:
         st.caption("All registered users")
         conn = get_conn()
@@ -357,6 +359,7 @@ def db_viewer_panel():
         conn.close()
         st.dataframe(df, use_container_width=True)
 
+    # ── TAB 1: Appeals Table ──
     with tabs[1]:
         st.caption("All appeals (never deleted)")
         conn = get_conn()
@@ -367,6 +370,7 @@ def db_viewer_panel():
         csv = df2.to_csv(index=False).encode("utf-8")
         st.download_button("Download Appeals as CSV", csv, "appeals_export.csv", "text/csv")
 
+    # ── TAB 2: Run SQL Query ──
     with tabs[2]:
         st.warning("Careful: only SELECT queries are recommended here.")
         raw_sql = st.text_area("SQL Query", value="SELECT * FROM appeals LIMIT 20;", height=120)
@@ -380,13 +384,33 @@ def db_viewer_panel():
             except Exception as e:
                 st.error(f"SQL Error: {e}")
 
+    # ── TAB 3: Backup DB ──
     with tabs[3]:
         st.info(
             "🔄 **Auto Backup Active:** The system automatically creates a daily backup "
             "every time the app starts (once per day, Iraq time). Last 30 backups are kept. "
             f"Today: {today_iraq()}"
         )
-        st.caption("You can also create a manual backup anytime:")
+
+        # زر تحميل باك أب اليوم بشكل بارز
+        today_path, today_fname = get_todays_backup_path()
+        if today_path and os.path.exists(today_path):
+            st.markdown("### ⬇️ Download Today's Backup")
+            with open(today_path, "rb") as f:
+                st.download_button(
+                    label=f"📥 Download Today's Backup — {today_iraq()}",
+                    data=f.read(),
+                    file_name=today_fname,
+                    mime="application/octet-stream",
+                    key="dl_today",
+                    type="primary",
+                    use_container_width=True,
+                )
+        else:
+            st.warning("⚠️ Today's auto backup not found yet. Restart the app to generate it.")
+
+        st.markdown("---")
+        st.caption("Or create a manual backup anytime:")
         if st.button("Create Manual Backup Now"):
             os.makedirs(BACKUP_DIR, exist_ok=True)
             ts = now_iraq().replace(":", "-").replace(" ", "_")
@@ -395,9 +419,10 @@ def db_viewer_panel():
             audit_log("DB_BACKUP_MANUAL", QUALITY_MANAGER, f"file={dest}")
             st.success(f"Manual backup saved: {dest}")
 
+        st.markdown("---")
         backup_files = sorted(os.listdir(BACKUP_DIR)) if os.path.exists(BACKUP_DIR) else []
         if backup_files:
-            st.caption(f"Available backups ({len(backup_files)} file(s)) — 🟢 auto | 🔵 manual:")
+            st.caption(f"All available backups ({len(backup_files)} file(s)) — 🟢 auto | 🔵 manual:")
             for f in backup_files[::-1]:
                 fpath = os.path.join(BACKUP_DIR, f)
                 col1, col2 = st.columns([3, 1])
@@ -411,22 +436,123 @@ def db_viewer_panel():
                         mime="application/octet-stream",
                         key=f"dl_{f}"
                     )
+        else:
+            st.info("No backups yet. Restart the app or click the button above.")
+
+    # ── TAB 4: Restore DB ──
+    with tabs[4]:
+        st.error(
+            "⚠️ **DANGER ZONE** — Restoring a backup will completely replace the current "
+            "database. All data added after the backup date will be permanently lost. "
+            "A safety backup of the current state is created automatically before any restore."
+        )
+
+        # ── القسم 1: استعادة من ملف موجود في السيرفر ──
+        st.markdown("### 🗂️ Restore from a Saved Backup")
+        st.caption("Choose a backup file from the list that is already saved on the server.")
+
+        backup_files = sorted(os.listdir(BACKUP_DIR)) if os.path.exists(BACKUP_DIR) else []
+
+        if not backup_files:
+            st.info("No backup files found in the backup folder.")
+        else:
+            selected_backup = st.selectbox(
+                "Choose a backup to restore:",
+                options=backup_files[::-1],
+                format_func=lambda f: ("🟢 " if f.startswith("auto_") else "🔵 ") + f
+            )
+
+            st.markdown("Type **CONFIRM** to enable the restore button:")
+            confirm_text = st.text_input("", placeholder="Type CONFIRM here", key="restore_confirm")
+            restore_ready = confirm_text.strip().upper() == "CONFIRM"
+
+            if st.button(
+                f"🔄 Restore from: {selected_backup}",
+                disabled=not restore_ready,
+                type="primary" if restore_ready else "secondary",
+                key="restore_btn"
+            ):
+                try:
+                    # احفظ نسخة safety تلقائياً قبل الاستعادة
+                    safety_ts = now_iraq().replace(":", "-").replace(" ", "_")
+                    os.makedirs(BACKUP_DIR, exist_ok=True)
+                    safety_dest = os.path.join(BACKUP_DIR, f"pre_restore_{safety_ts}.db")
+                    shutil.copy(DB_FILE, safety_dest)
+
+                    # استعادة الباك أب المختار
+                    src = os.path.join(BACKUP_DIR, selected_backup)
+                    shutil.copy(src, DB_FILE)
+                    audit_log("DB_RESTORED", QUALITY_MANAGER, f"from={selected_backup} safety={safety_dest}")
+
+                    st.success(
+                        f"✅ Database restored from: **{selected_backup}**\n\n"
+                        f"Safety backup saved as: `{os.path.basename(safety_dest)}`"
+                    )
+                    st.warning("🔄 Please press F5 to refresh the page for changes to take full effect.")
+                except Exception as e:
+                    st.error(f"❌ Restore failed: {e}")
+                    audit_log("DB_RESTORE_ERROR", QUALITY_MANAGER, str(e))
+
+        st.markdown("---")
+
+        # ── القسم 2: استعادة من ملف ترفعه من لابتوبك ──
+        st.markdown("### 💻 Restore from an Uploaded File")
+        st.caption("Upload a .db backup file directly from your computer.")
+
+        uploaded_db = st.file_uploader(
+            "Upload backup file (.db)",
+            type=["db"],
+            key="restore_upload"
+        )
+
+        if uploaded_db is not None:
+            st.markdown("Type **CONFIRM** to enable the restore button:")
+            confirm_upload = st.text_input("", placeholder="Type CONFIRM here", key="restore_upload_confirm")
+            restore_upload_ready = confirm_upload.strip().upper() == "CONFIRM"
+
+            if st.button(
+                "🔄 Restore from Uploaded File",
+                disabled=not restore_upload_ready,
+                type="primary" if restore_upload_ready else "secondary",
+                key="restore_upload_btn"
+            ):
+                try:
+                    # احفظ نسخة safety تلقائياً
+                    safety_ts = now_iraq().replace(":", "-").replace(" ", "_")
+                    os.makedirs(BACKUP_DIR, exist_ok=True)
+                    safety_dest = os.path.join(BACKUP_DIR, f"pre_restore_{safety_ts}.db")
+                    shutil.copy(DB_FILE, safety_dest)
+
+                    # اكتب الملف المرفوع
+                    with open(DB_FILE, "wb") as out:
+                        out.write(uploaded_db.read())
+
+                    audit_log("DB_RESTORED_FROM_UPLOAD", QUALITY_MANAGER, f"file={uploaded_db.name} safety={safety_dest}")
+
+                    st.success(
+                        f"✅ Database restored from uploaded file: **{uploaded_db.name}**\n\n"
+                        f"Safety backup saved as: `{os.path.basename(safety_dest)}`"
+                    )
+                    st.warning("🔄 Please press F5 to refresh the page for changes to take full effect.")
+                except Exception as e:
+                    st.error(f"❌ Restore failed: {e}")
+                    audit_log("DB_RESTORE_UPLOAD_ERROR", QUALITY_MANAGER, str(e))
 
 # ───────────────────────────────────────────────
 # UI HELPERS
 # ───────────────────────────────────────────────
 def status_badge(status: str) -> str:
     colors = {
-        "Pending":               "#f0ad4e",
-        "Reviewed by Quality":   "#5bc0de",
-        "Reviewed by Manager":   "#5cb85c",
+        "Pending":                 "#FFA500",
+        "Reviewed by Quality":     "#1E90FF",
+        "Reviewed by Manager":     "#32CD32",
     }
-    color = colors.get(status, "#aaa")
-    return f'<span style="background:{color};color:#fff;padding:2px 10px;border-radius:12px;font-size:0.85em;">{status}</span>'
+    color = colors.get(status, "#888888")
+    return f'<span style="background:{color};color:white;padding:2px 10px;border-radius:12px;font-size:12px;">{status}</span>'
 
-def appeal_card(row, is_admin=False, actor="", panel="quality"):
+def appeal_card(row, is_admin: bool = False, actor: str = "", panel: str = "quality"):
     """
-    row columns (all/supervisor appeals):
+    row columns (all appeals):
     0:id, 1:employee, 2:problem_date, 3:ticket, 4:tab, 5:kpi,
     6:description, 7:submission_date, 8:quality_response, 9:manager_response, 10:status
     """
@@ -671,6 +797,7 @@ def page_quality_manager():
         "Change My Password"
     ])
 
+    # ── TAB 1: All Appeals ──
     with tab1:
         st.subheader("All Employee Appeals")
         appeals = get_all_appeals()
@@ -695,6 +822,7 @@ def page_quality_manager():
             for row in filtered:
                 appeal_card(row, is_admin=True, actor=user["username"], panel="quality")
 
+    # ── TAB 2: User Management ──
     with tab2:
         st.subheader("User Management")
 
@@ -750,9 +878,11 @@ def page_quality_manager():
                     else:
                         col_b.markdown("*(Protected Account)*")
 
+    # ── TAB 3: Database Access ──
     with tab3:
         db_viewer_panel()
 
+    # ── TAB 4: Change My Password ──
     with tab4:
         st.subheader("Change My Password")
         old_pw  = st.text_input("Current Password", type="password", key="qm_old")
@@ -782,19 +912,41 @@ def main():
     )
 
     init_db()
+
+    # ── AUTO DAILY BACKUP ──
     auto_daily_backup()
 
+    # ── Sidebar: Logout + Daily Download Reminder ──
     if "user" in st.session_state:
         with st.sidebar:
             u = st.session_state["user"]
             st.markdown(f"**Logged in as:** {u['username']}")
             st.markdown(f"**Role:** {u['role']}")
             st.markdown("---")
+
+            # زر تحميل اليومي — يظهر فقط لـ quality manager في السايدبار كتذكير
+            if u["role"] == "quality_manager":
+                today_path, today_fname = get_todays_backup_path()
+                if today_path and os.path.exists(today_path):
+                    st.markdown("### 💾 Daily Backup")
+                    st.caption(f"📅 {today_iraq()}")
+                    with open(today_path, "rb") as f:
+                        st.download_button(
+                            label="📥 Download Today's Backup",
+                            data=f.read(),
+                            file_name=today_fname,
+                            mime="application/octet-stream",
+                            key="sidebar_dl_today",
+                            use_container_width=True,
+                        )
+                    st.markdown("---")
+
             if st.button("Logout"):
                 audit_log("LOGOUT", u["username"])
                 st.session_state.clear()
                 st.rerun()
 
+    # ── Routing ──
     if "user" not in st.session_state:
         page_login()
         return
