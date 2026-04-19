@@ -137,7 +137,7 @@ def init_db():
     # ✅ FIX 2: seed الحسابات الافتراضية فقط إذا المستخدم غير موجود أصلاً
     # لا يمس الباسوورد أو force_change إذا المستخدم موجود مسبقاً
     default_accounts = [
-        ("jsafaa",  "Safaa Al-Quality",  "quality_manager", ""),
+        ("jsafaa",  "Zubaidy",  "quality_manager", ""),
         ("ahatim",  "Ali",     "Head Of Section",      ""),
         ("farook",  "Farook",    "Team Leader",      ""),
     ]
