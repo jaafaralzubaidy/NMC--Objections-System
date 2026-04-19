@@ -138,8 +138,8 @@ def init_db():
     # لا يمس الباسوورد أو force_change إذا المستخدم موجود مسبقاً
     default_accounts = [
         ("jsafaa",  "Safaa Al-Quality",  "quality_manager", ""),
-        ("ahatim",  "Hatim Manager",     "supervisor",      ""),
-        ("farook",  "Farook Manager",    "supervisor",      ""),
+        ("ahatim",  "Ali",     "Head Of Section",      ""),
+        ("farook",  "Farook",    "Team Leader",      ""),
     ]
     for uname, fname, role, sup in default_accounts:
         c.execute("SELECT id FROM users WHERE username = ?", (uname,))
