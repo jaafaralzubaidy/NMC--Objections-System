@@ -47,8 +47,7 @@ def audit_log(action, actor, details=""):
 # DATABASE — Supabase PostgreSQL
 # ───────────────────────────────────────────────
 def get_conn():
-    url = st.secrets["DATABASE_URL"]
-    return psycopg2.connect(url, sslmode='require')
+    return psycopg2.connect(st.secrets["DATABASE_URL"])
 
 def init_db():
     conn = get_conn()
