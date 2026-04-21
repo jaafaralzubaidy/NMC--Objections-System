@@ -43,16 +43,10 @@ def audit_log(action, actor, details=""):
 # ───────────────────────────────────────────────
 @st.cache_resource
 def get_client():
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
-    return create_client(url, key)
+    return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
 def init_db():
     sb = get_client()
-    # إنشاء جداول عبر SQL مباشر
-    sb.rpc("init_tables", {}).execute() if False else None
-
-    # seed default accounts
     for uname, fname, role, sup in [
         ("jsafaa", "Safaa Al-Quality",  "quality_manager", ""),
         ("ahatim", "Hatim Manager",     "supervisor",      ""),
@@ -62,13 +56,9 @@ def init_db():
         existing = sb.table("users").select("id").eq("username", uname).execute()
         if not existing.data:
             sb.table("users").insert({
-                "username": uname,
-                "password_hash": hash_password(DEFAULT_PASSWORD),
-                "full_name": fname,
-                "role": role,
-                "supervisor": sup,
-                "force_change": 1,
-                "created_at": now_iraq()
+                "username": uname, "password_hash": hash_password(DEFAULT_PASSWORD),
+                "full_name": fname, "role": role, "supervisor": sup,
+                "force_change": 1, "created_at": now_iraq()
             }).execute()
 
 # ───────────────────────────────────────────────
@@ -78,10 +68,8 @@ def compute_status(qd, md, gd):
     qd = (qd or "").strip()
     md = (md or "").strip()
     gd = (gd or "").strip()
-    if gd in ("Approved", "Rejected"):
-        return f"GM Decision: {gd}"
-    if qd and md:
-        return qd if qd == md else "Escalated to GM"
+    if gd in ("Approved", "Rejected"): return f"GM Decision: {gd}"
+    if qd and md: return qd if qd == md else "Escalated to GM"
     if qd: return f"Quality: {qd}"
     if md: return f"Manager: {md}"
     return "Pending"
@@ -97,40 +85,36 @@ def authenticate(username, password):
     res = sb.table("users").select("*").eq("username", username).execute()
     if res.data and res.data[0]["password_hash"] == hash_password(password):
         u = res.data[0]
-        return {"id": u["id"], "username": u["username"], "full_name": u["full_name"],
-                "role": u["role"], "supervisor": u["supervisor"], "force_change": u["force_change"]}
+        return {"id":u["id"],"username":u["username"],"full_name":u["full_name"],
+                "role":u["role"],"supervisor":u["supervisor"],"force_change":u["force_change"]}
     return None
 
 def update_password(username, new_password):
     try:
-        sb = get_client()
-        sb.table("users").update({"password_hash": hash_password(new_password), "force_change": 0}).eq("username", username).execute()
+        get_client().table("users").update({"password_hash":hash_password(new_password),"force_change":0}).eq("username",username).execute()
         audit_log("PASSWORD_CHANGE", username); return True
     except Exception as e:
         audit_log("PASSWORD_CHANGE_ERROR", username, str(e)); return False
 
 def reset_password(target_user, actor):
     try:
-        sb = get_client()
-        sb.table("users").update({"password_hash": hash_password(DEFAULT_PASSWORD), "force_change": 1}).eq("username", target_user).execute()
+        get_client().table("users").update({"password_hash":hash_password(DEFAULT_PASSWORD),"force_change":1}).eq("username",target_user).execute()
         audit_log("PASSWORD_RESET", actor, f"target={target_user}"); return True
     except Exception as e:
         audit_log("PASSWORD_RESET_ERROR", actor, str(e)); return False
 
 def get_all_users():
-    sb = get_client()
-    res = sb.table("users").select("id,username,full_name,role,supervisor,force_change,created_at").order("created_at", desc=True).execute()
+    res = get_client().table("users").select("id,username,full_name,role,supervisor,force_change,created_at").order("created_at", desc=True).execute()
     return [(r["id"],r["username"],r["full_name"],r["role"],r["supervisor"],r["force_change"],r["created_at"]) for r in res.data]
 
 def add_user(username, full_name, role, supervisor, actor):
     try:
         sb = get_client()
-        existing = sb.table("users").select("id").eq("username", username.strip().lower()).execute()
-        if existing.data: return False
+        if sb.table("users").select("id").eq("username", username.strip().lower()).execute().data: return False
         sb.table("users").insert({
-            "username": username.strip().lower(), "password_hash": hash_password(DEFAULT_PASSWORD),
-            "full_name": full_name.strip(), "role": role, "supervisor": supervisor,
-            "force_change": 1, "created_at": now_iraq()
+            "username":username.strip().lower(), "password_hash":hash_password(DEFAULT_PASSWORD),
+            "full_name":full_name.strip(), "role":role, "supervisor":supervisor,
+            "force_change":1, "created_at":now_iraq()
         }).execute()
         audit_log("USER_ADDED", actor, f"new_user={username}"); return True
     except Exception: return False
@@ -146,8 +130,7 @@ def delete_user(username, actor):
         audit_log("USER_DELETE_ERROR", actor, str(e)); return False
 
 def get_employees_of_supervisor(supervisor):
-    sb = get_client()
-    res = sb.table("users").select("username").eq("supervisor", supervisor).execute()
+    res = get_client().table("users").select("username").eq("supervisor", supervisor).execute()
     return [r["username"] for r in res.data]
 
 # ───────────────────────────────────────────────
@@ -155,14 +138,13 @@ def get_employees_of_supervisor(supervisor):
 # ───────────────────────────────────────────────
 def submit_appeal(employee, problem_date, ticket, tab, kpi, description):
     try:
-        sb = get_client()
-        sb.table("appeals").insert({
-            "employee": employee, "problem_date": problem_date, "ticket_number": ticket,
-            "tab": tab, "kpi": kpi, "description": description,
-            "submission_date": now_iraq(), "created_at": now_iraq(),
-            "quality_response": "", "quality_decision": "",
-            "manager_response": "", "manager_decision": "",
-            "gm_response": "", "gm_decision": "", "status": "Pending"
+        get_client().table("appeals").insert({
+            "employee":employee, "problem_date":problem_date, "ticket_number":ticket,
+            "tab":tab, "kpi":kpi, "description":description,
+            "submission_date":now_iraq(), "created_at":now_iraq(),
+            "quality_response":"", "quality_decision":"",
+            "manager_response":"", "manager_decision":"",
+            "gm_response":"", "gm_decision":"", "status":"Pending"
         }).execute()
         audit_log("APPEAL_SUBMITTED", employee, f"ticket={ticket}"); return True
     except Exception as e:
@@ -173,43 +155,38 @@ def _row(r, with_emp=True):
         return (r["id"],r["employee"],r["problem_date"],r["ticket_number"],r["tab"],r["kpi"],
                 r["description"],r["submission_date"],r["quality_response"],r["quality_decision"],
                 r["manager_response"],r["manager_decision"],r["gm_response"],r["gm_decision"],r["status"])
-    else:
-        return (r["id"],r["problem_date"],r["ticket_number"],r["tab"],r["kpi"],
-                r["description"],r["submission_date"],r["quality_response"],r["quality_decision"],
-                r["manager_response"],r["manager_decision"],r["gm_response"],r["gm_decision"],r["status"])
+    return (r["id"],r["problem_date"],r["ticket_number"],r["tab"],r["kpi"],
+            r["description"],r["submission_date"],r["quality_response"],r["quality_decision"],
+            r["manager_response"],r["manager_decision"],r["gm_response"],r["gm_decision"],r["status"])
 
 def get_my_appeals(username):
-    sb = get_client()
-    res = sb.table("appeals").select("*").eq("employee", username).order("id", desc=True).execute()
+    res = get_client().table("appeals").select("*").eq("employee",username).order("id",desc=True).execute()
     return [_row(r, with_emp=False) for r in res.data]
 
 def get_all_appeals():
-    sb = get_client()
-    res = sb.table("appeals").select("*").order("id", desc=True).execute()
+    res = get_client().table("appeals").select("*").order("id",desc=True).execute()
     return [_row(r) for r in res.data]
 
 def get_appeals_for_supervisor(supervisor):
     emps = get_employees_of_supervisor(supervisor)
     if not emps: return []
-    sb = get_client()
-    res = sb.table("appeals").select("*").in_("employee", emps).order("id", desc=True).execute()
+    res = get_client().table("appeals").select("*").in_("employee",emps).order("id",desc=True).execute()
     return [_row(r) for r in res.data]
 
 def get_escalated_appeals():
-    sb = get_client()
-    res = sb.table("appeals").select("*").eq("status", "Escalated to GM").order("id", desc=True).execute()
+    res = get_client().table("appeals").select("*").eq("status","Escalated to GM").order("id",desc=True).execute()
     return [_row(r) for r in res.data]
 
 def save_quality_decision(appeal_id, response, decision, actor):
     try:
         sb = get_client()
-        cur = sb.table("appeals").select("manager_decision,gm_decision").eq("id", appeal_id).execute()
+        cur = sb.table("appeals").select("manager_decision,gm_decision").eq("id",appeal_id).execute()
         md = cur.data[0]["manager_decision"] if cur.data else ""
         gd = cur.data[0]["gm_decision"] if cur.data else ""
         sb.table("appeals").update({
-            "quality_response": response, "quality_decision": decision,
-            "status": compute_status(decision, md, gd)
-        }).eq("id", appeal_id).execute()
+            "quality_response":response, "quality_decision":decision,
+            "status":compute_status(decision,md,gd)
+        }).eq("id",appeal_id).execute()
         audit_log("QUALITY_DECISION", actor, f"id={appeal_id} dec={decision}"); return True
     except Exception as e:
         audit_log("QUALITY_DECISION_ERROR", actor, str(e)); return False
@@ -217,27 +194,171 @@ def save_quality_decision(appeal_id, response, decision, actor):
 def save_manager_decision(appeal_id, response, decision, actor):
     try:
         sb = get_client()
-        cur = sb.table("appeals").select("quality_decision,gm_decision").eq("id", appeal_id).execute()
+        cur = sb.table("appeals").select("quality_decision,gm_decision").eq("id",appeal_id).execute()
         qd = cur.data[0]["quality_decision"] if cur.data else ""
         gd = cur.data[0]["gm_decision"] if cur.data else ""
         sb.table("appeals").update({
-            "manager_response": response, "manager_decision": decision,
-            "status": compute_status(qd, decision, gd)
-        }).eq("id", appeal_id).execute()
+            "manager_response":response, "manager_decision":decision,
+            "status":compute_status(qd,decision,gd)
+        }).eq("id",appeal_id).execute()
         audit_log("MANAGER_DECISION", actor, f"id={appeal_id} dec={decision}"); return True
     except Exception as e:
         audit_log("MANAGER_DECISION_ERROR", actor, str(e)); return False
 
 def save_gm_decision(appeal_id, response, decision, actor):
     try:
-        sb = get_client()
-        sb.table("appeals").update({
-            "gm_response": response, "gm_decision": decision,
-            "status": compute_status("", "", decision)
-        }).eq("id", appeal_id).execute()
+        get_client().table("appeals").update({
+            "gm_response":response, "gm_decision":decision,
+            "status":compute_status("","",decision)
+        }).eq("id",appeal_id).execute()
         audit_log("GM_DECISION", actor, f"id={appeal_id} dec={decision}"); return True
     except Exception as e:
         audit_log("GM_DECISION_ERROR", actor, str(e)); return False
+
+# ───────────────────────────────────────────────
+# NOTIFICATIONS — إشعارات للموظف
+# ───────────────────────────────────────────────
+def show_employee_notifications(username):
+    """
+    يعرض إشعارات للموظف عن اعتراضاته التي تغير وضعها
+    يعتمد على الـ session_state لتتبع الحالات السابقة
+    """
+    appeals = get_my_appeals(username)
+    if not appeals:
+        return
+
+    # نحفظ الحالات السابقة في session_state
+    prev_key = f"prev_statuses_{username}"
+    if prev_key not in st.session_state:
+        st.session_state[prev_key] = {}
+
+    prev = st.session_state[prev_key]
+    notifications = []
+
+    for row in appeals:
+        appeal_id  = row[0]
+        cur_status = row[13]   # status بدون employee
+        prev_status = prev.get(appeal_id)
+
+        if prev_status is not None and prev_status != cur_status:
+            # تغير الوضع — اصنع إشعار
+            notifications.append((appeal_id, row[2], cur_status))
+
+        # حدّث الحالة المحفوظة
+        prev[appeal_id] = cur_status
+
+    st.session_state[prev_key] = prev
+
+    # عرض الإشعارات
+    if notifications:
+        st.markdown("---")
+        st.markdown("### 🔔 Appeal Status Updates")
+        for aid, ticket, status in notifications:
+            if "Approved" in status:
+                st.success(f"✅ Appeal #{aid} (Ticket: {ticket}) — Status changed to: **{status}**")
+            elif "Rejected" in status:
+                st.error(f"❌ Appeal #{aid} (Ticket: {ticket}) — Status changed to: **{status}**")
+            elif "Escalated" in status:
+                st.warning(f"⚖️ Appeal #{aid} (Ticket: {ticket}) — Escalated to General Manager")
+            else:
+                st.info(f"📋 Appeal #{aid} (Ticket: {ticket}) — Status changed to: **{status}**")
+        st.markdown("---")
+
+# ───────────────────────────────────────────────
+# STATISTICS — إحصائيات
+# ───────────────────────────────────────────────
+def show_statistics(appeals, title="📊 Statistics"):
+    """عرض إحصائيات الاعتراضات"""
+    if not appeals:
+        return
+
+    st.markdown(f"### {title}")
+
+    total     = len(appeals)
+    pending   = sum(1 for r in appeals if r[-1] == "Pending")
+    approved  = sum(1 for r in appeals if "Approved" in r[-1])
+    rejected  = sum(1 for r in appeals if "Rejected" in r[-1])
+    escalated = sum(1 for r in appeals if r[-1] == "Escalated to GM")
+    in_review = total - pending - approved - rejected - escalated
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("📋 Total",      total)
+    c2.metric("⏳ Pending",    pending)
+    c3.metric("✅ Approved",   approved)
+    c4.metric("❌ Rejected",   rejected)
+    c5.metric("⚖️ Escalated",  escalated)
+
+    # نسب مئوية بشكل بسيط
+    if total > 0:
+        st.markdown("---")
+        col1, col2 = st.columns(2)
+        with col1:
+            if approved + rejected > 0:
+                approval_rate = round(approved / (approved + rejected) * 100)
+                st.markdown(f"**Approval Rate:** {approval_rate}%")
+                st.progress(approval_rate / 100)
+
+        with col2:
+            resolved = approved + rejected
+            resolution_rate = round(resolved / total * 100)
+            st.markdown(f"**Resolution Rate:** {resolution_rate}%")
+            st.progress(resolution_rate / 100)
+
+    st.markdown("---")
+
+def show_supervisor_statistics(appeals, title="📊 Team Statistics"):
+    """إحصائيات للسوبرفايزر"""
+    show_statistics(appeals, title)
+
+def show_quality_statistics(appeals):
+    """إحصائيات مفصّلة للـ quality manager"""
+    if not appeals:
+        return
+
+    st.markdown("### 📊 Overall Statistics")
+
+    total     = len(appeals)
+    pending   = sum(1 for r in appeals if r[-1] == "Pending")
+    approved  = sum(1 for r in appeals if "Approved" in r[-1])
+    rejected  = sum(1 for r in appeals if "Rejected" in r[-1])
+    escalated = sum(1 for r in appeals if r[-1] == "Escalated to GM")
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("📋 Total",     total)
+    c2.metric("⏳ Pending",   pending)
+    c3.metric("✅ Approved",  approved)
+    c4.metric("❌ Rejected",  rejected)
+    c5.metric("⚖️ Escalated", escalated)
+
+    if total > 0:
+        st.markdown("---")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if approved + rejected > 0:
+                rate = round(approved / (approved + rejected) * 100)
+                st.markdown(f"**Approval Rate:** {rate}%")
+                st.progress(rate / 100)
+        with col2:
+            res_rate = round((approved + rejected) / total * 100)
+            st.markdown(f"**Resolution Rate:** {res_rate}%")
+            st.progress(res_rate / 100)
+        with col3:
+            esc_rate = round(escalated / total * 100) if total > 0 else 0
+            st.markdown(f"**Escalation Rate:** {esc_rate}%")
+            st.progress(esc_rate / 100)
+
+    # إحصائيات حسب KPI
+    st.markdown("---")
+    st.markdown("**Top KPIs by Appeal Count:**")
+    kpi_counts = {}
+    for r in appeals:
+        kpi = r[5]
+        kpi_counts[kpi] = kpi_counts.get(kpi, 0) + 1
+    top_kpis = sorted(kpi_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+    for kpi, count in top_kpis:
+        st.markdown(f"- **{kpi}:** {count} appeal(s)")
+
+    st.markdown("---")
 
 # ───────────────────────────────────────────────
 # UI HELPERS
@@ -257,6 +378,8 @@ def dbadge(d):
     if d == "Rejected": return "❌ Rejected"
     return "⏳ Pending"
 
+# cols مع employee: 0:id 1:emp 2:prob 3:ticket 4:tab 5:kpi 6:desc
+#                   7:sub 8:q_resp 9:q_dec 10:m_resp 11:m_dec 12:gm_resp 13:gm_dec 14:status
 def appeal_card(row, is_admin=False, actor="", panel="quality"):
     with st.expander(f"Appeal #{row[0]} | {row[1]} | Ticket: {row[3]} | {row[2]} | {row[14]}"):
         c1, c2 = st.columns(2)
@@ -318,6 +441,8 @@ def gm_appeal_card(row, actor=""):
                 st.success(f"Saved: {dec}"); st.rerun()
             else: st.error("Error saving.")
 
+# cols بدون employee: 0:id 1:prob 2:ticket 3:tab 4:kpi 5:desc
+#                     6:sub 7:q_resp 8:q_dec 9:m_resp 10:m_dec 11:gm_resp 12:gm_dec 13:status
 def my_appeal_card(row):
     with st.expander(f"Appeal #{row[0]} | Ticket: {row[2]} | {row[1]}"):
         c1, c2 = st.columns(2)
@@ -339,17 +464,13 @@ def db_viewer_panel():
     st.markdown("---")
     st.subheader("Database Direct Access")
     tabs = st.tabs(["Users Table", "Appeals Table"])
-
     with tabs[0]:
         import pandas as pd
-        sb = get_client()
-        res = sb.table("users").select("id,username,full_name,role,supervisor,force_change,created_at").order("created_at", desc=True).execute()
+        res = get_client().table("users").select("id,username,full_name,role,supervisor,force_change,created_at").order("created_at",desc=True).execute()
         st.dataframe(pd.DataFrame(res.data), use_container_width=True)
-
     with tabs[1]:
         import pandas as pd
-        sb = get_client()
-        res = sb.table("appeals").select("*").order("id", desc=True).execute()
+        res = get_client().table("appeals").select("*").order("id",desc=True).execute()
         df = pd.DataFrame(res.data)
         st.dataframe(df, use_container_width=True)
         if not df.empty:
@@ -381,10 +502,10 @@ def page_force_change():
     new_pw  = st.text_input("New Password", type="password")
     new_pw2 = st.text_input("Confirm New Password", type="password")
     if st.button("Change Password", type="primary"):
-        if not new_pw or not new_pw2: st.error("Please fill both fields.")
-        elif new_pw != new_pw2:       st.error("Passwords do not match.")
-        elif new_pw == DEFAULT_PASSWORD: st.error("Cannot use the default password.")
-        elif len(new_pw) < 4:         st.error("Minimum 4 characters.")
+        if not new_pw or not new_pw2:    st.error("Please fill both fields.")
+        elif new_pw != new_pw2:           st.error("Passwords do not match.")
+        elif new_pw == DEFAULT_PASSWORD:  st.error("Cannot use the default password.")
+        elif len(new_pw) < 4:             st.error("Minimum 4 characters.")
         else:
             if update_password(user["username"], new_pw):
                 st.session_state["user"]["force_change"] = 0
@@ -397,10 +518,10 @@ def _change_pw_section(key_prefix, username):
     new_pw  = st.text_input("New Password",     type="password", key=f"{key_prefix}_new")
     new_pw2 = st.text_input("Confirm Password", type="password", key=f"{key_prefix}_new2")
     if st.button("Update Password", key=f"{key_prefix}_upd"):
-        if not authenticate(username, old_pw): st.error("Current password is incorrect.")
-        elif new_pw != new_pw2:                st.error("Passwords do not match.")
-        elif len(new_pw) < 4:                  st.error("Minimum 4 characters.")
-        elif new_pw == DEFAULT_PASSWORD:        st.error("Cannot use the default password.")
+        if not authenticate(username, old_pw):  st.error("Current password is incorrect.")
+        elif new_pw != new_pw2:                  st.error("Passwords do not match.")
+        elif len(new_pw) < 4:                    st.error("Minimum 4 characters.")
+        elif new_pw == DEFAULT_PASSWORD:          st.error("Cannot use the default password.")
         else:
             if update_password(username, new_pw): st.success("Password updated successfully.")
             else: st.error("Error updating password.")
@@ -408,7 +529,12 @@ def _change_pw_section(key_prefix, username):
 def page_employee():
     user = st.session_state["user"]
     st.title(f"Welcome, {user['full_name'] or user['username']}")
+
+    # ── إشعارات الموظف ──
+    show_employee_notifications(user["username"])
+
     tab1, tab2, tab3 = st.tabs(["Submit Appeal", "My Appeals", "Change Password"])
+
     with tab1:
         st.subheader("Submit New Appeal")
         with st.form("appeal_form", clear_on_submit=True):
@@ -427,13 +553,17 @@ def page_employee():
                 if submit_appeal(user["username"], str(problem_date), ticket_number.strip(), tab_sel, kpi_sel, description.strip()):
                     st.success("Appeal submitted successfully.")
                 else: st.error("Error submitting appeal.")
+
     with tab2:
         st.subheader("My Appeals")
         appeals = get_my_appeals(user["username"])
         if not appeals: st.info("You have not submitted any appeals yet.")
         else:
+            # ── إحصائيات الموظف ──
+            show_statistics(appeals, "📊 My Appeals Summary")
             st.caption(f"Total: {len(appeals)} appeal(s)")
             for row in appeals: my_appeal_card(row)
+
     with tab3:
         _change_pw_section("emp", user["username"])
 
@@ -441,12 +571,16 @@ def page_supervisor():
     user = st.session_state["user"]
     st.title(f"Supervisor Panel — {user['full_name'] or user['username']}")
     tab1, tab2 = st.tabs(["Team Appeals", "Change My Password"])
+
     with tab1:
         appeals = get_appeals_for_supervisor(user["username"])
         if not appeals: st.info("No appeals found for your team yet.")
         else:
+            # ── إحصائيات الفريق ──
+            show_supervisor_statistics(appeals, "📊 Team Statistics")
             st.caption(f"Total: {len(appeals)} appeal(s)")
             for row in appeals: appeal_card(row, is_admin=True, actor=user["username"], panel="manager")
+
     with tab2:
         _change_pw_section("sup", user["username"])
 
@@ -454,12 +588,16 @@ def page_general_manager():
     user = st.session_state["user"]
     st.title(f"General Manager Panel — {user['full_name'] or user['username']}")
     tab1, tab2 = st.tabs(["⚖️ Escalated Appeals", "Change My Password"])
+
     with tab1:
         escalated = get_escalated_appeals()
         if not escalated: st.success("✅ No conflicts at this time.")
         else:
             st.warning(f"⚠️ {len(escalated)} appeal(s) require your final decision.")
+            # ── إحصائيات المحالة ──
+            show_statistics(escalated, "📊 Escalated Appeals Summary")
             for row in escalated: gm_appeal_card(row, actor=user["username"])
+
     with tab2:
         _change_pw_section("gm", user["username"])
 
@@ -467,10 +605,14 @@ def page_quality_manager():
     user = st.session_state["user"]
     st.title(f"Quality Manager Panel — {user['full_name'] or user['username']}")
     tab1, tab2, tab3, tab4 = st.tabs(["All Appeals","User Management","Database Access","Change My Password"])
+
     with tab1:
         appeals = get_all_appeals()
         if not appeals: st.info("No appeals submitted yet.")
         else:
+            # ── إحصائيات شاملة ──
+            show_quality_statistics(appeals)
+
             c1, c2, c3 = st.columns(3)
             f_emp    = c1.selectbox("Filter by Employee", ["All"] + sorted(set(r[1] for r in appeals)))
             f_kpi    = c2.selectbox("Filter by KPI",      ["All"] + sorted(set(r[5] for r in appeals)))
@@ -481,6 +623,7 @@ def page_quality_manager():
                         and (f_status=="All" or r[14]==f_status)]
             st.caption(f"Showing {len(filtered)} of {len(appeals)} appeal(s)")
             for row in filtered: appeal_card(row, is_admin=True, actor=user["username"], panel="quality")
+
     with tab2:
         st.subheader("User Management")
         st.markdown("### Add New Employee")
@@ -516,8 +659,10 @@ def page_quality_manager():
                         else: cb.error("Error deleting user.")
                 else:
                     cb.markdown("*(Protected Account)*")
+
     with tab3:
         db_viewer_panel()
+
     with tab4:
         _change_pw_section("qm", user["username"])
 
