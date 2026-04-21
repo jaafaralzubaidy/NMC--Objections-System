@@ -1,8 +1,8 @@
 import streamlit as st
-import psycopg2
 import hashlib
 import logging
 from datetime import datetime, date, timezone, timedelta
+from supabase import create_client
 
 # ───────────────────────────────────────────────
 # CONFIGURATION
@@ -34,67 +34,42 @@ TAB_LIST = [
     "Al-watani Power", "Al-watani Services"
 ]
 
-# ───────────────────────────────────────────────
-# LOGGING
-# ───────────────────────────────────────────────
-logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s | %(levelname)s | %(message)s")
-
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 def audit_log(action, actor, details=""):
     logging.info(f"ACTOR={actor} | ACTION={action} | {details}")
 
 # ───────────────────────────────────────────────
-# DATABASE — Supabase PostgreSQL
+# SUPABASE CLIENT
 # ───────────────────────────────────────────────
-def get_conn():
-    return psycopg2.connect(st.secrets["DATABASE_URL"])
+@st.cache_resource
+def get_client():
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
 
 def init_db():
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id            SERIAL PRIMARY KEY,
-            username      TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            full_name     TEXT DEFAULT '',
-            role          TEXT DEFAULT 'employee',
-            supervisor    TEXT DEFAULT '',
-            force_change  INTEGER DEFAULT 1,
-            created_at    TEXT DEFAULT ''
-        )
-    """)
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS appeals (
-            id               SERIAL PRIMARY KEY,
-            employee         TEXT NOT NULL,
-            problem_date     TEXT NOT NULL,
-            ticket_number    TEXT NOT NULL,
-            tab              TEXT NOT NULL,
-            kpi              TEXT NOT NULL,
-            description      TEXT NOT NULL,
-            submission_date  TEXT NOT NULL,
-            quality_response TEXT DEFAULT '',
-            quality_decision TEXT DEFAULT '',
-            manager_response TEXT DEFAULT '',
-            manager_decision TEXT DEFAULT '',
-            gm_response      TEXT DEFAULT '',
-            gm_decision      TEXT DEFAULT '',
-            status           TEXT DEFAULT 'Pending',
-            created_at       TEXT DEFAULT ''
-        )
-    """)
+    sb = get_client()
+    # إنشاء جداول عبر SQL مباشر
+    sb.rpc("init_tables", {}).execute() if False else None
+
+    # seed default accounts
     for uname, fname, role, sup in [
         ("jsafaa", "Safaa Al-Quality",  "quality_manager", ""),
         ("ahatim", "Hatim Manager",     "supervisor",      ""),
         ("farook", "Farook Manager",    "supervisor",      ""),
         ("rsamim", "Samim Al-General",  "general_manager", ""),
     ]:
-        c.execute("""
-            INSERT INTO users (username,password_hash,full_name,role,supervisor,force_change,created_at)
-            VALUES (%s,%s,%s,%s,%s,1,%s) ON CONFLICT (username) DO NOTHING
-        """, (uname, hash_password(DEFAULT_PASSWORD), fname, role, sup, now_iraq()))
-    conn.commit(); c.close(); conn.close()
+        existing = sb.table("users").select("id").eq("username", uname).execute()
+        if not existing.data:
+            sb.table("users").insert({
+                "username": uname,
+                "password_hash": hash_password(DEFAULT_PASSWORD),
+                "full_name": fname,
+                "role": role,
+                "supervisor": sup,
+                "force_change": 1,
+                "created_at": now_iraq()
+            }).execute()
 
 # ───────────────────────────────────────────────
 # STATUS LOGIC
@@ -118,138 +93,148 @@ def hash_password(p):
     return hashlib.sha256(p.encode()).hexdigest()
 
 def authenticate(username, password):
-    conn = get_conn(); c = conn.cursor()
-    c.execute("SELECT id,username,password_hash,full_name,role,supervisor,force_change FROM users WHERE username=%s", (username,))
-    row = c.fetchone(); c.close(); conn.close()
-    if row and row[2] == hash_password(password):
-        return {"id":row[0],"username":row[1],"full_name":row[3],"role":row[4],"supervisor":row[5],"force_change":row[6]}
+    sb = get_client()
+    res = sb.table("users").select("*").eq("username", username).execute()
+    if res.data and res.data[0]["password_hash"] == hash_password(password):
+        u = res.data[0]
+        return {"id": u["id"], "username": u["username"], "full_name": u["full_name"],
+                "role": u["role"], "supervisor": u["supervisor"], "force_change": u["force_change"]}
     return None
 
 def update_password(username, new_password):
     try:
-        conn = get_conn(); c = conn.cursor()
-        c.execute("UPDATE users SET password_hash=%s, force_change=0 WHERE username=%s", (hash_password(new_password), username))
-        conn.commit(); c.close(); conn.close()
+        sb = get_client()
+        sb.table("users").update({"password_hash": hash_password(new_password), "force_change": 0}).eq("username", username).execute()
         audit_log("PASSWORD_CHANGE", username); return True
     except Exception as e:
         audit_log("PASSWORD_CHANGE_ERROR", username, str(e)); return False
 
 def reset_password(target_user, actor):
     try:
-        conn = get_conn(); c = conn.cursor()
-        c.execute("UPDATE users SET password_hash=%s, force_change=1 WHERE username=%s", (hash_password(DEFAULT_PASSWORD), target_user))
-        conn.commit(); c.close(); conn.close()
+        sb = get_client()
+        sb.table("users").update({"password_hash": hash_password(DEFAULT_PASSWORD), "force_change": 1}).eq("username", target_user).execute()
         audit_log("PASSWORD_RESET", actor, f"target={target_user}"); return True
     except Exception as e:
         audit_log("PASSWORD_RESET_ERROR", actor, str(e)); return False
 
 def get_all_users():
-    conn = get_conn(); c = conn.cursor()
-    c.execute("SELECT id,username,full_name,role,supervisor,force_change,created_at FROM users ORDER BY created_at DESC")
-    rows = c.fetchall(); c.close(); conn.close(); return rows
+    sb = get_client()
+    res = sb.table("users").select("id,username,full_name,role,supervisor,force_change,created_at").order("created_at", desc=True).execute()
+    return [(r["id"],r["username"],r["full_name"],r["role"],r["supervisor"],r["force_change"],r["created_at"]) for r in res.data]
 
 def add_user(username, full_name, role, supervisor, actor):
     try:
-        conn = get_conn(); c = conn.cursor()
-        c.execute("""INSERT INTO users (username,password_hash,full_name,role,supervisor,force_change,created_at)
-                     VALUES (%s,%s,%s,%s,%s,1,%s)""",
-                  (username.strip().lower(), hash_password(DEFAULT_PASSWORD), full_name.strip(), role, supervisor, now_iraq()))
-        conn.commit(); c.close(); conn.close()
+        sb = get_client()
+        existing = sb.table("users").select("id").eq("username", username.strip().lower()).execute()
+        if existing.data: return False
+        sb.table("users").insert({
+            "username": username.strip().lower(), "password_hash": hash_password(DEFAULT_PASSWORD),
+            "full_name": full_name.strip(), "role": role, "supervisor": supervisor,
+            "force_change": 1, "created_at": now_iraq()
+        }).execute()
         audit_log("USER_ADDED", actor, f"new_user={username}"); return True
     except Exception: return False
 
 def delete_user(username, actor):
     if username in ALL_MGMT: return False
     try:
-        conn = get_conn(); c = conn.cursor()
-        c.execute("DELETE FROM appeals WHERE employee=%s", (username,))
-        c.execute("DELETE FROM users WHERE username=%s", (username,))
-        conn.commit(); c.close(); conn.close()
+        sb = get_client()
+        sb.table("appeals").delete().eq("employee", username).execute()
+        sb.table("users").delete().eq("username", username).execute()
         audit_log("USER_DELETED", actor, f"deleted={username}"); return True
     except Exception as e:
         audit_log("USER_DELETE_ERROR", actor, str(e)); return False
 
 def get_employees_of_supervisor(supervisor):
-    conn = get_conn(); c = conn.cursor()
-    c.execute("SELECT username FROM users WHERE supervisor=%s", (supervisor,))
-    rows = c.fetchall(); c.close(); conn.close()
-    return [r[0] for r in rows]
+    sb = get_client()
+    res = sb.table("users").select("username").eq("supervisor", supervisor).execute()
+    return [r["username"] for r in res.data]
 
 # ───────────────────────────────────────────────
 # APPEAL OPERATIONS
 # ───────────────────────────────────────────────
 def submit_appeal(employee, problem_date, ticket, tab, kpi, description):
     try:
-        conn = get_conn(); c = conn.cursor()
-        c.execute("""INSERT INTO appeals (employee,problem_date,ticket_number,tab,kpi,description,submission_date,created_at)
-                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
-                  (employee, problem_date, ticket, tab, kpi, description, now_iraq(), now_iraq()))
-        conn.commit(); c.close(); conn.close()
+        sb = get_client()
+        sb.table("appeals").insert({
+            "employee": employee, "problem_date": problem_date, "ticket_number": ticket,
+            "tab": tab, "kpi": kpi, "description": description,
+            "submission_date": now_iraq(), "created_at": now_iraq(),
+            "quality_response": "", "quality_decision": "",
+            "manager_response": "", "manager_decision": "",
+            "gm_response": "", "gm_decision": "", "status": "Pending"
+        }).execute()
         audit_log("APPEAL_SUBMITTED", employee, f"ticket={ticket}"); return True
     except Exception as e:
         audit_log("APPEAL_SUBMIT_ERROR", employee, str(e)); return False
 
-def _q(sql, params=()):
-    conn = get_conn(); c = conn.cursor()
-    c.execute(sql, params); rows = c.fetchall(); c.close(); conn.close(); return rows
+def _row(r, with_emp=True):
+    if with_emp:
+        return (r["id"],r["employee"],r["problem_date"],r["ticket_number"],r["tab"],r["kpi"],
+                r["description"],r["submission_date"],r["quality_response"],r["quality_decision"],
+                r["manager_response"],r["manager_decision"],r["gm_response"],r["gm_decision"],r["status"])
+    else:
+        return (r["id"],r["problem_date"],r["ticket_number"],r["tab"],r["kpi"],
+                r["description"],r["submission_date"],r["quality_response"],r["quality_decision"],
+                r["manager_response"],r["manager_decision"],r["gm_response"],r["gm_decision"],r["status"])
 
 def get_my_appeals(username):
-    return _q("""SELECT id,problem_date,ticket_number,tab,kpi,description,submission_date,
-                        quality_response,quality_decision,manager_response,manager_decision,
-                        gm_response,gm_decision,status
-                 FROM appeals WHERE employee=%s ORDER BY id DESC""", (username,))
+    sb = get_client()
+    res = sb.table("appeals").select("*").eq("employee", username).order("id", desc=True).execute()
+    return [_row(r, with_emp=False) for r in res.data]
 
 def get_all_appeals():
-    return _q("""SELECT id,employee,problem_date,ticket_number,tab,kpi,description,submission_date,
-                        quality_response,quality_decision,manager_response,manager_decision,
-                        gm_response,gm_decision,status
-                 FROM appeals ORDER BY id DESC""")
+    sb = get_client()
+    res = sb.table("appeals").select("*").order("id", desc=True).execute()
+    return [_row(r) for r in res.data]
 
 def get_appeals_for_supervisor(supervisor):
     emps = get_employees_of_supervisor(supervisor)
     if not emps: return []
-    ph = ",".join(["%s"]*len(emps))
-    return _q(f"""SELECT id,employee,problem_date,ticket_number,tab,kpi,description,submission_date,
-                         quality_response,quality_decision,manager_response,manager_decision,
-                         gm_response,gm_decision,status
-                  FROM appeals WHERE employee IN ({ph}) ORDER BY id DESC""", emps)
+    sb = get_client()
+    res = sb.table("appeals").select("*").in_("employee", emps).order("id", desc=True).execute()
+    return [_row(r) for r in res.data]
 
 def get_escalated_appeals():
-    return _q("""SELECT id,employee,problem_date,ticket_number,tab,kpi,description,submission_date,
-                        quality_response,quality_decision,manager_response,manager_decision,
-                        gm_response,gm_decision,status
-                 FROM appeals WHERE status='Escalated to GM' ORDER BY id DESC""")
+    sb = get_client()
+    res = sb.table("appeals").select("*").eq("status", "Escalated to GM").order("id", desc=True).execute()
+    return [_row(r) for r in res.data]
 
 def save_quality_decision(appeal_id, response, decision, actor):
     try:
-        conn = get_conn(); c = conn.cursor()
-        c.execute("SELECT manager_decision,gm_decision FROM appeals WHERE id=%s", (appeal_id,))
-        row = c.fetchone(); md = row[0] if row else ""; gd = row[1] if row else ""
-        c.execute("UPDATE appeals SET quality_response=%s,quality_decision=%s,status=%s WHERE id=%s",
-                  (response, decision, compute_status(decision, md, gd), appeal_id))
-        conn.commit(); c.close(); conn.close()
+        sb = get_client()
+        cur = sb.table("appeals").select("manager_decision,gm_decision").eq("id", appeal_id).execute()
+        md = cur.data[0]["manager_decision"] if cur.data else ""
+        gd = cur.data[0]["gm_decision"] if cur.data else ""
+        sb.table("appeals").update({
+            "quality_response": response, "quality_decision": decision,
+            "status": compute_status(decision, md, gd)
+        }).eq("id", appeal_id).execute()
         audit_log("QUALITY_DECISION", actor, f"id={appeal_id} dec={decision}"); return True
     except Exception as e:
         audit_log("QUALITY_DECISION_ERROR", actor, str(e)); return False
 
 def save_manager_decision(appeal_id, response, decision, actor):
     try:
-        conn = get_conn(); c = conn.cursor()
-        c.execute("SELECT quality_decision,gm_decision FROM appeals WHERE id=%s", (appeal_id,))
-        row = c.fetchone(); qd = row[0] if row else ""; gd = row[1] if row else ""
-        c.execute("UPDATE appeals SET manager_response=%s,manager_decision=%s,status=%s WHERE id=%s",
-                  (response, decision, compute_status(qd, decision, gd), appeal_id))
-        conn.commit(); c.close(); conn.close()
+        sb = get_client()
+        cur = sb.table("appeals").select("quality_decision,gm_decision").eq("id", appeal_id).execute()
+        qd = cur.data[0]["quality_decision"] if cur.data else ""
+        gd = cur.data[0]["gm_decision"] if cur.data else ""
+        sb.table("appeals").update({
+            "manager_response": response, "manager_decision": decision,
+            "status": compute_status(qd, decision, gd)
+        }).eq("id", appeal_id).execute()
         audit_log("MANAGER_DECISION", actor, f"id={appeal_id} dec={decision}"); return True
     except Exception as e:
         audit_log("MANAGER_DECISION_ERROR", actor, str(e)); return False
 
 def save_gm_decision(appeal_id, response, decision, actor):
     try:
-        conn = get_conn(); c = conn.cursor()
-        c.execute("UPDATE appeals SET gm_response=%s,gm_decision=%s,status=%s WHERE id=%s",
-                  (response, decision, compute_status("","",decision), appeal_id))
-        conn.commit(); c.close(); conn.close()
+        sb = get_client()
+        sb.table("appeals").update({
+            "gm_response": response, "gm_decision": decision,
+            "status": compute_status("", "", decision)
+        }).eq("id", appeal_id).execute()
         audit_log("GM_DECISION", actor, f"id={appeal_id} dec={decision}"); return True
     except Exception as e:
         audit_log("GM_DECISION_ERROR", actor, str(e)); return False
@@ -272,8 +257,6 @@ def dbadge(d):
     if d == "Rejected": return "❌ Rejected"
     return "⏳ Pending"
 
-# cols مع employee: 0:id 1:emp 2:prob_date 3:ticket 4:tab 5:kpi 6:desc
-#                   7:sub 8:q_resp 9:q_dec 10:m_resp 11:m_dec 12:gm_resp 13:gm_dec 14:status
 def appeal_card(row, is_admin=False, actor="", panel="quality"):
     with st.expander(f"Appeal #{row[0]} | {row[1]} | Ticket: {row[3]} | {row[2]} | {row[14]}"):
         c1, c2 = st.columns(2)
@@ -285,7 +268,7 @@ def appeal_card(row, is_admin=False, actor="", panel="quality"):
         c2.markdown(f"**Submitted:** {row[7]}")
         st.markdown(f"**Description:**\n\n{row[6]}")
         st.markdown(f"**Status:** {status_badge(row[14])}", unsafe_allow_html=True)
-        if row[8] or row[9]:  st.info(f"**Quality:** {dbadge(row[9])} | {row[8] or '—'}")
+        if row[8] or row[9]:   st.info(f"**Quality:** {dbadge(row[9])} | {row[8] or '—'}")
         if row[10] or row[11]: st.info(f"**Manager:** {dbadge(row[11])} | {row[10] or '—'}")
         if row[12] or row[13]: st.success(f"**GM Final:** {dbadge(row[13])} | {row[12] or '—'}")
         if not is_admin: return
@@ -335,8 +318,6 @@ def gm_appeal_card(row, actor=""):
                 st.success(f"Saved: {dec}"); st.rerun()
             else: st.error("Error saving.")
 
-# cols بدون employee: 0:id 1:prob 2:ticket 3:tab 4:kpi 5:desc
-#                     6:sub 7:q_resp 8:q_dec 9:m_resp 10:m_dec 11:gm_resp 12:gm_dec 13:status
 def my_appeal_card(row):
     with st.expander(f"Appeal #{row[0]} | Ticket: {row[2]} | {row[1]}"):
         c1, c2 = st.columns(2)
@@ -347,8 +328,8 @@ def my_appeal_card(row):
         c2.markdown(f"**Submitted:** {row[6]}")
         st.markdown(f"**Description:**\n\n{row[5]}")
         st.markdown(f"**Status:** {status_badge(row[13])}", unsafe_allow_html=True)
-        if row[7] or row[8]:  st.info(f"**Quality:** {dbadge(row[8])} | {row[7] or '—'}")
-        if row[9] or row[10]: st.info(f"**Manager:** {dbadge(row[10])} | {row[9] or '—'}")
+        if row[7] or row[8]:   st.info(f"**Quality:** {dbadge(row[8])} | {row[7] or '—'}")
+        if row[9] or row[10]:  st.info(f"**Manager:** {dbadge(row[10])} | {row[9] or '—'}")
         if row[11] or row[12]: st.success(f"**GM Final:** {dbadge(row[12])} | {row[11] or '—'}")
 
 # ───────────────────────────────────────────────
@@ -357,36 +338,22 @@ def my_appeal_card(row):
 def db_viewer_panel():
     st.markdown("---")
     st.subheader("Database Direct Access")
-    tabs = st.tabs(["Users Table", "Appeals Table", "Run SQL Query"])
+    tabs = st.tabs(["Users Table", "Appeals Table"])
 
     with tabs[0]:
         import pandas as pd
-        conn = get_conn(); c = conn.cursor()
-        c.execute("SELECT id,username,full_name,role,supervisor,force_change,created_at FROM users ORDER BY created_at DESC")
-        rows = c.fetchall(); c.close(); conn.close()
-        st.dataframe(pd.DataFrame(rows, columns=["id","username","full_name","role","supervisor","force_change","created_at"]), use_container_width=True)
+        sb = get_client()
+        res = sb.table("users").select("id,username,full_name,role,supervisor,force_change,created_at").order("created_at", desc=True).execute()
+        st.dataframe(pd.DataFrame(res.data), use_container_width=True)
 
     with tabs[1]:
         import pandas as pd
-        conn = get_conn(); c = conn.cursor()
-        c.execute("SELECT * FROM appeals ORDER BY id DESC")
-        rows = c.fetchall(); cols = [d[0] for d in c.description]; c.close(); conn.close()
-        df = pd.DataFrame(rows, columns=cols)
+        sb = get_client()
+        res = sb.table("appeals").select("*").order("id", desc=True).execute()
+        df = pd.DataFrame(res.data)
         st.dataframe(df, use_container_width=True)
-        st.download_button("Download Appeals as CSV", df.to_csv(index=False).encode("utf-8"), "appeals_export.csv", "text/csv")
-
-    with tabs[2]:
-        st.warning("Careful: only SELECT queries recommended.")
-        raw_sql = st.text_area("SQL Query", value="SELECT * FROM appeals LIMIT 20;", height=120)
-        if st.button("Execute Query"):
-            try:
-                import pandas as pd
-                conn = get_conn(); c = conn.cursor()
-                c.execute(raw_sql); rows = c.fetchall(); cols = [d[0] for d in c.description]
-                c.close(); conn.close()
-                st.dataframe(pd.DataFrame(rows, columns=cols), use_container_width=True)
-            except Exception as e:
-                st.error(f"SQL Error: {e}")
+        if not df.empty:
+            st.download_button("Download Appeals as CSV", df.to_csv(index=False).encode("utf-8"), "appeals_export.csv", "text/csv")
 
 # ───────────────────────────────────────────────
 # PAGES
@@ -442,7 +409,6 @@ def page_employee():
     user = st.session_state["user"]
     st.title(f"Welcome, {user['full_name'] or user['username']}")
     tab1, tab2, tab3 = st.tabs(["Submit Appeal", "My Appeals", "Change Password"])
-
     with tab1:
         st.subheader("Submit New Appeal")
         with st.form("appeal_form", clear_on_submit=True):
@@ -461,7 +427,6 @@ def page_employee():
                 if submit_appeal(user["username"], str(problem_date), ticket_number.strip(), tab_sel, kpi_sel, description.strip()):
                     st.success("Appeal submitted successfully.")
                 else: st.error("Error submitting appeal.")
-
     with tab2:
         st.subheader("My Appeals")
         appeals = get_my_appeals(user["username"])
@@ -469,7 +434,6 @@ def page_employee():
         else:
             st.caption(f"Total: {len(appeals)} appeal(s)")
             for row in appeals: my_appeal_card(row)
-
     with tab3:
         _change_pw_section("emp", user["username"])
 
@@ -478,7 +442,6 @@ def page_supervisor():
     st.title(f"Supervisor Panel — {user['full_name'] or user['username']}")
     tab1, tab2 = st.tabs(["Team Appeals", "Change My Password"])
     with tab1:
-        st.subheader("My Team's Appeals")
         appeals = get_appeals_for_supervisor(user["username"])
         if not appeals: st.info("No appeals found for your team yet.")
         else:
@@ -504,9 +467,7 @@ def page_quality_manager():
     user = st.session_state["user"]
     st.title(f"Quality Manager Panel — {user['full_name'] or user['username']}")
     tab1, tab2, tab3, tab4 = st.tabs(["All Appeals","User Management","Database Access","Change My Password"])
-
     with tab1:
-        st.subheader("All Employee Appeals")
         appeals = get_all_appeals()
         if not appeals: st.info("No appeals submitted yet.")
         else:
@@ -515,12 +476,11 @@ def page_quality_manager():
             f_kpi    = c2.selectbox("Filter by KPI",      ["All"] + sorted(set(r[5] for r in appeals)))
             f_status = c3.selectbox("Filter by Status",   ["All"] + sorted(set(r[14] for r in appeals)))
             filtered = [r for r in appeals
-                        if (f_emp    == "All" or r[1]  == f_emp)
-                        and (f_kpi   == "All" or r[5]  == f_kpi)
-                        and (f_status== "All" or r[14] == f_status)]
+                        if (f_emp=="All" or r[1]==f_emp)
+                        and (f_kpi=="All" or r[5]==f_kpi)
+                        and (f_status=="All" or r[14]==f_status)]
             st.caption(f"Showing {len(filtered)} of {len(appeals)} appeal(s)")
             for row in filtered: appeal_card(row, is_admin=True, actor=user["username"], panel="quality")
-
     with tab2:
         st.subheader("User Management")
         st.markdown("### Add New Employee")
@@ -529,7 +489,7 @@ def page_quality_manager():
             new_uname = c1.text_input("Username (login ID)")
             new_fname = c2.text_input("Full Name")
             new_role  = c1.selectbox("Role", ["employee","supervisor","quality_manager"])
-            new_sup   = c2.selectbox("Assign to Supervisor", [""]+SUPERVISORS, help="Leave blank for admins")
+            new_sup   = c2.selectbox("Assign to Supervisor", [""]+SUPERVISORS)
             add_submitted = st.form_submit_button("Add User", type="primary")
         if add_submitted:
             if not new_uname.strip(): st.error("Username cannot be empty.")
@@ -537,7 +497,6 @@ def page_quality_manager():
                 if add_user(new_uname, new_fname, new_role, new_sup, user["username"]):
                     st.success(f"User '{new_uname}' added. Default password: 123")
                 else: st.error(f"Username '{new_uname}' already exists.")
-
         st.markdown("---")
         st.markdown("### Manage Existing Users")
         for u in get_all_users():
@@ -557,10 +516,8 @@ def page_quality_manager():
                         else: cb.error("Error deleting user.")
                 else:
                     cb.markdown("*(Protected Account)*")
-
     with tab3:
         db_viewer_panel()
-
     with tab4:
         _change_pw_section("qm", user["username"])
 
@@ -574,7 +531,7 @@ def main():
         init_db()
     except Exception as e:
         st.error(f"❌ Database connection failed: {e}")
-        st.info("Please check that DATABASE_URL is correct in Streamlit Secrets.")
+        st.info("Please check SUPABASE_URL and SUPABASE_KEY in Streamlit Secrets.")
         return
 
     if "user" in st.session_state:
